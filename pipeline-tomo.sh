@@ -204,6 +204,7 @@ main() {
 
   fi
 
+  #need to figure out exactly what this is doing and edit it for our purposes
   if [ "$MODE" == "tomo" ]; then
     #echo "NUM: $count: ${MICROGRAPHS}"
     if [[ -z ${BASENAME} && $count -gt 1 ]]; then
