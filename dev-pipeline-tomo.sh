@@ -9,7 +9,6 @@ IMOD_LOAD="imod/${IMOD_VERSION}" #update version
 ARETOMO_VERSION="2.3.0"
 ARETOMO_LOAD="aretomo/${ARETOMO_VERSION}"
 
-#mode but tomo
 
 # GENERATE
 # select mode/task and define terms
@@ -187,12 +186,6 @@ do_spa()
 
 }
 
-# create a do_tomo function
-#based on assigned tasks will direct code to nesscary funcs
-#- reconstruct - aretomo
-#- generate preview - mrc2mp4
-#- all
-
 # write out record of data
 do_prepipeline()
 {
@@ -233,12 +226,6 @@ do_gainref()
     dump_file_meta "${GAINREF_FILE}" || exit $?
   fi
 }
-
-#create do_aretomo 
-# print information about tilt series
-# calls function inside of it, keep track of time
-# 406 *
-
 
 process_gainref()
 {
@@ -356,23 +343,22 @@ generate_mp4() {
   local output="$outdir/${filename%.${extension}}.mp4"
   mkdir -p "$outdir"
 
+  # checks if output files already exist, if so, exits to avoid overwriting (necessary? was in old code)
   if [ -e "$output" ]; then
     >&2 echo "output file $output already exists!"
-    exit
-  fi
+    exit 1
+  else
+    # load imod
+    module load ${IMOD_LOAD} || exit $?
 
-  # load imod
-  module load ${IMOD_LOAD} || exit $?
+    # imod command to compute min/max densities
+    alterheader -mmm "$mrc_input"
 
-  # imod command to compute min/max densities
-  alterheader -mmm "$mrc_input"
+    # reads density info from the header and extracts min/max values
+    header_info=$(header "$mrc_input" 2>&1)
+    min_density=$(grep -i 'Minimum Density' <<< "$header_info" | awk -F'\.\.\.' '{print $NF}' | awk '{print $1}')
+    max_density=$(grep -i 'Maximum Density' <<< "$header_info" | awk -F'\.\.\.' '{print $NF}' | awk '{print $1}')
 
-  # reads density info from the header and extracts min/max values
-  header_info=$(header "$mrc_input" 2>&1)
-  min_density=$(grep -i 'Minimum Density' <<< "$header_info" | awk -F'\.\.\.' '{print $NF}' | awk '{print $1}')
-  max_density=$(grep -i 'Maximum Density' <<< "$header_info" | awk -F'\.\.\.' '{print $NF}' | awk '{print $1}')
-
-  if [[ ! -e "$output" ]]; then
     echo "executing: .mrc to .tif conversion" 1>&2
     # imod command to convert .mrc to .tif 
     mrc2tif -C "${min_density}","${max_density}" "$mrc_input" "$outdir/${filename}" 
@@ -384,18 +370,51 @@ generate_mp4() {
     # clean up tiff files
     rm -f "$outdir/${filename}"*.tif
   fi
+
+  #makes sure output is there
   if [ ! -e "$output" ]; then
       >&2 echo "could not generate .mp4 file $output!"
       exit 4
-  fi
 
   >&2 echo "done!"
   echo $output
+  fi 
   }
 
 #generate/dump file meta (smth similar) *1370*
 
-#do_call_mp4 
+do_mp4() {
+   
+}
+
+# create a do_tomo function
+#based on assigned tasks will direct code to nesscary funcs
+#- reconstruct - aretomo
+#- generate preview - mrc2mp4
+#- all
+#create do_aretomo 
+# print information about tilt series
+# calls function inside of it, keep track of time
+# 406 *
+do_tomo() {
+  if [[ "$TASK" == "reconstruct" || "$TASK" == "all" ]]; then
+    echo "  - task: reconstruct"
+    local start=$(date +%s.%N)
+    tomo_3D_reconstruction
+    local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
+    echo "    duration: $duration"
+    echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
+  fi
+  if [[ "$TASK" == "display" || "$TASK" == "all" ]]; then
+    echo "  - task: generate_preview"
+    local start=$(date +%s.%N)
+    generate_mp4 "${[mrc file]}" # !! mrc file needs to be defined /outdir what? maybe should happen in 
+    local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
+    echo "    duration: $duration"
+    echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
+  fi
+}
+
 
 set -e
 main "$@"
