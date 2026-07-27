@@ -7,7 +7,6 @@ IMOD_LOAD="imod/${IMOD_VERSION}" #update version
 ARETOMO_VERSION="2.3.0"
 ARETOMO_LOAD="aretomo/${ARETOMO_VERSION}"
 
-#mode but tomo
 
 # GENERATE
 # select mode/task and define terms
@@ -365,40 +364,106 @@ tomo_3D_reconstruction() { #1063 *
   prefix="[absolute path to tilt prefix]"
   gain_ref="[absolute path to gain reference]"
   outdir="/[absolute path to output directory]" #must be pre-created
-  apix="{$APIX}"
-  FM_DOSE=0.5 #[*define a function calculating this value*]
-  FM_INT=1 #[*define a function calculate this value*]
-  KV= ${KV-300}
-  MC_PATCH=${5 5}
-  SPLIT_SUM=${SPLIT_SUM:}
+  GPU=${0 1 2 3}
+  APIX="{$APIX}"
+  MCPATCH=${MCPATCH:-5 5}
+  FMDOSE=0.5 #[*define a function calculating this value*]
+  FMINT=1 #[*define a function calculate this value*]
+  KV=${KV:-300}
+  SPLITSUM=${SPLITSUM:-1}
   VOLZ=${VOLZ:-1}
   ALIGNZ=${ALIGNZ:-0}
+  ATBIN=${ATBIN:-4}
+  FLIPGAIN=${FLIPGAIN:-1}
+  ATPATCH=${ATPATCH:-4 4}
+  WBP=${WBP:-1}
+  CS=${CS:-2.7}
 
-##default can be either left out (if in mdoc) or set here if not in mdoc
   AreTomo3 \ 
       -Cmd ${cmd} \
       -InPrefix "${prefix}" \
       -InSuffix ".mdoc" \
       -Gain "${gain_ref}" \
       -OutDir "${outdir}" \
-      -Gpu 0 1 2 3 \
+      -Gpu ${GPU} \
       -PixSize ${APIX} \
-      -McPatch 5 5 \
-      -FmInt ${fm_int} \
-      -FmDose ${fm_dose} \
-      -SplitSum 1 \
-      -VolZ -1 \ #allow adjustment 
-      -AlignZ 0 \
-      -AtBin 4 \
-      -FlipGain 1 \ #set variable conditional to camera type
-      -AtPatch 4 4 \
-      -Wbp 1 \
+      -McPatch ${MCPATCH} \
+      -FmInt ${FMINT} \
+      -FmDose ${FMDOSE} \
+      -SplitSum ${SPLITSUM} \
+      -VolZ ${VOLZ} \ #allow adjustment 
+      -AlignZ ${ALIGNZ} \
+      -AtBin ${ATBIN} \
+      -FlipGain ${FLIPGAIN} \ #set variable conditional to camera type
+      -AtPatch ${ATPATCH} \
+      -Wbp ${WBP} \
       -kV ${KV} \
-      -Cs 2.7
+      -Cs ${CS}
 
 }
 
 #genrate mp4 function *1223*
+generate_mp4() {
+  local mrc_input="$1" # take mrc as first arg
+  local outdir="${2:-.}" # if no output dir is given, put in current dir
+  local frame_rate="${3:-4}" # default frame rate is 4 if not specified as arg
+
+  # ensures mrc file is provided
+  if [[ -z "$mrc_input" ]]; then
+      >&2 echo "Error: No .mrc file provided as an argument."
+      >&2 echo "Usage: $0 <mrc_file> [output_dir] [frame_rate]"
+      exit 1
+  fi
+  
+  # ensures if the input file exists
+  if [ ! -e "$mrc_input" ]; then
+    >&2 echo "input file $mrc_input not found!"
+    exit  
+  fi
+
+  #create output directory
+  local filename=$(basename -- "$mrc_input")
+  local extension="${filename##*.}"
+  local output="$outdir/${filename%.${extension}}.mp4"
+  mkdir -p "$outdir"
+
+  # checks if output files already exist, if so, exits to avoid overwriting (necessary? was in old code)
+  if [ -e "$output" ]; then
+    >&2 echo "output file $output already exists!"
+    exit 1
+  else
+    # load imod
+    module load ${IMOD_LOAD} || exit $?
+
+    # imod command to compute min/max densities
+    alterheader -mmm "$mrc_input"
+
+    # reads density info from the header and extracts min/max values
+    header_info=$(header "$mrc_input" 2>&1)
+    min_density=$(grep -i 'Minimum Density' <<< "$header_info" | awk -F'\.\.\.' '{print $NF}' | awk '{print $1}')
+    max_density=$(grep -i 'Maximum Density' <<< "$header_info" | awk -F'\.\.\.' '{print $NF}' | awk '{print $1}')
+
+    echo "executing: .mrc to .tif conversion" 1>&2
+    # imod command to convert .mrc to .tif 
+    mrc2tif -C "${min_density}","${max_density}" "$mrc_input" "$outdir/${filename}" 
+    echo "executing: .tif to .mp4 conversion" 1>&2
+    # command to convert to mp4 from tiff 
+    ffmpeg -pattern_type glob -framerate "${frame_rate}" -i "$outdir/${filename}"'*.tif' -pix_fmt yuv420p "$output" 1>&2
+    echo "cleaning up .tif files" 1>&2
+
+    # clean up tiff files
+    rm -f "$outdir/${filename}"*.tif
+  fi
+
+  #makes sure output is there
+  if [ ! -e "$output" ]; then
+      >&2 echo "could not generate .mp4 file $output!"
+      exit 4
+
+  >&2 echo "done!"
+  echo $output
+  fi 
+  }
 
 #generate/dump file meta (smth similar) *1370*
 generate_file_meta()
@@ -445,7 +510,38 @@ dump_file_meta()
   echo "        create_timestamp: $create_timestamp"
 }
 
-#do_call_mp4 
+do_mp4() {
+   
+}
+
+# create a do_tomo function
+#based on assigned tasks will direct code to nesscary funcs
+#- reconstruct - aretomo
+#- generate preview - mrc2mp4
+#- all
+#create do_aretomo 
+# print information about tilt series
+# calls function inside of it, keep track of time
+# 406 *
+do_tomo() {
+  if [[ "$TASK" == "reconstruct" || "$TASK" == "all" ]]; then
+    echo "  - task: reconstruct"
+    local start=$(date +%s.%N)
+    tomo_3D_reconstruction
+    local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
+    echo "    duration: $duration"
+    echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
+  fi
+  if [[ "$TASK" == "display" || "$TASK" == "all" ]]; then
+    echo "  - task: generate_preview"
+    local start=$(date +%s.%N)
+    generate_mp4 "${[mrc file]}" # !! mrc file needs to be defined /outdir what? maybe should happen in 
+    local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
+    echo "    duration: $duration"
+    echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
+  fi
+}
+
 
 set -e
 main "$@"
