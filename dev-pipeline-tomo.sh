@@ -221,14 +221,6 @@ do_spa()
 
 }
 
-#create do_tomo 
-# print information about tilt series
-# calls function inside of it, keep track of time
-# 406 *
-#based on assigned tasks will direct code to nesscary funcs
-#- reconstruct - aretomo
-#- generate preview - mrc2mp4
-#- all
 
 # write out record of data
 do_prepipeline()
@@ -270,11 +262,6 @@ do_gainref()
     dump_file_meta "${GAINREF_FILE}" || exit $?
   fi
 }
-
-#create do_aretomo 
-# print information about tilt series
-# calls function inside of it, keep track of time
-# 406 *
 
 #GRACE
 process_gainref()
@@ -367,8 +354,8 @@ tomo_3D_reconstruction() { #1063 *
   GPU=${0 1 2 3}
   APIX="{$APIX}"
   MCPATCH=${MCPATCH:-5 5}
-  FMDOSE=0.5 #[*define a function calculating this value*]
-  FMINT=1 #[*define a function calculate this value*]
+  FMDOSE=0.5 
+  FMINT=1 
   KV=${KV:-300}
   SPLITSUM=${SPLITSUM:-1}
   VOLZ=${VOLZ:-1}
@@ -391,10 +378,10 @@ tomo_3D_reconstruction() { #1063 *
       -FmInt ${FMINT} \
       -FmDose ${FMDOSE} \
       -SplitSum ${SPLITSUM} \
-      -VolZ ${VOLZ} \ #allow adjustment 
+      -VolZ ${VOLZ} \ 
       -AlignZ ${ALIGNZ} \
       -AtBin ${ATBIN} \
-      -FlipGain ${FLIPGAIN} \ #set variable conditional to camera type
+      -FlipGain ${FLIPGAIN} \
       -AtPatch ${ATPATCH} \
       -Wbp ${WBP} \
       -kV ${KV} \
@@ -403,7 +390,7 @@ tomo_3D_reconstruction() { #1063 *
 }
 
 #genrate mp4 function *1223*
-generate_mp4() {
+generate_preview() {
   local mrc_input="$1" # take mrc as first arg
   local outdir="${2:-.}" # if no output dir is given, put in current dir
   local frame_rate="${3:-4}" # default frame rate is 4 if not specified as arg
@@ -532,10 +519,10 @@ do_tomo() {
     echo "    duration: $duration"
     echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
   fi
-  if [[ "$TASK" == "display" || "$TASK" == "all" ]]; then
-    echo "  - task: generate_preview"
+  if [[ "$TASK" == "preview" || "$TASK" == "all" ]]; then
+    echo "  - task: preview"
     local start=$(date +%s.%N)
-    generate_mp4 "${[mrc file]}" # !! mrc file needs to be defined /outdir what? maybe should happen in 
+    generate_preview "${[mrc file]}" # !! mrc file needs to be defined /outdir what? maybe should happen in 
     local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
     echo "    duration: $duration"
     echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
