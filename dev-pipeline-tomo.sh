@@ -363,7 +363,7 @@ tomo_3D_reconstruction() { #1063 *
   ATPATCH=${ATPATCH:-4 4}
   WBP=${WBP:-1}
 
-  AreTomo3 \ 
+  AreTomo3 \
       -Cmd ${cmd} \
       -InPrefix "${prefix}" \
       -InSuffix ".mdoc" \
@@ -527,7 +527,6 @@ do_tomo() {
     fi
     FORCE=$force
   fi
-
   echo "tomographic_analysis:"
   if [[ "$TASK" == "reconstruct" || "$TASK" == "all" ]]; then
     echo "  - task: reconstruct"
@@ -537,8 +536,6 @@ do_tomo() {
     echo "    duration: $duration"
     echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
   fi
-
-
   if [[ "$TASK" == "preview" || "$TASK" == "all" ]]; then
     echo "  - task: preview"
     local start=$(date +%s.%N)
