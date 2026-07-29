@@ -404,7 +404,7 @@ tomo_3D_reconstruction() { #1063 *
   ATPATCH=${ATPATCH:-4 4}
   WBP=${WBP:-1}
 
-  AreTomo3 \ 
+  AreTomo3 \
       -Cmd ${cmd} \
       -InPrefix "${prefix}" \
       -InSuffix ".mdoc" \
@@ -540,10 +540,66 @@ dump_file_meta()
   echo "        create_timestamp: $create_timestamp"
 }
 
+<<<<<<< HEAD
+do_mp4() {
+   
+}
+
+# create a do_tomo function
+#based on assigned tasks will direct code to nesscary funcs
+#- reconstruct - aretomo
+#- generate preview - mrc2mp4
+#- all
+#create do_aretomo 
+# print information about tilt series
+# calls function inside of it, keep track of time
+# 406 *
+do_tomo() {
+  if [ ${NO_PREAMBLE} -eq 0  ]; then
+    do_prepipeline
+    if [[ "$TASK" == "align" || "$TASK" == "sum" || "$TASK" == "all" ]]; then
+      local force=${FORCE}
+      if [ ${NO_FORCE_GAINREF} -eq 1 ]; then
+        FORCE=0
+      fi
+      do_gainref
+      FORCE=$force
+    fi
+  else
+    # still need to determine correct gainref
+    local force=${FORCE}
+    FORCE=0
+    if [[ "$GAINREF_FILE" != "" ]]; then
+      GAINREF_FILE=$(process_gainref "$GAINREF_FILE") || exit $?
+    fi
+    FORCE=$force
+  fi
+  echo "tomographic_analysis:"
+  if [[ "$TASK" == "reconstruct" || "$TASK" == "all" ]]; then
+    echo "  - task: reconstruct"
+    local start=$(date +%s.%N)
+    tomo_3D_reconstruction
+    local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
+    echo "    duration: $duration"
+    echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
+  fi
+  if [[ "$TASK" == "preview" || "$TASK" == "all" ]]; then
+    echo "  - task: preview"
+    local start=$(date +%s.%N)
+    PREVIEW_FILE=$(generate_preview) || exit $?
+    echo "    files:"
+    dump_file_meta "${PREVIEW_FILE}" || exit $?
+    local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
+    echo "    duration: $duration"
+    echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
+  fi
+}
+=======
 #think this would be the same thing as the generate_preview function? 
 #do_mp4() {
 #   
 #}
+>>>>>>> 4005bcdd3890cf36214b24c7067955b196c91493
 
 
 set -e
