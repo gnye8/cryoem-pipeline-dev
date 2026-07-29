@@ -103,16 +103,6 @@ main() {
     usage
     exit 1
   fi
-  #don't need the called functions, we will use the values from the logbook passed
-  #as arguments to the script, so we don't need to read from the mdoc file anymore
-
-
-  #if [ -e "${MDOC}" ]; then #the called functions don't exist anymore
-  #  KV=${KV:-$(get_mdoc_voltage)}
-  #  APIX=${APIX:-$(get_mdoc_apix)}
-  #  FMDOSE=${FMDOSE:-$(get_mdoc_fmdose)}
-  #fi
-
 
 #ensure all required variables are defined !! 
 if [ -z $APIX ]; then # doesn't allow for apix to be undefined, exits if it is
@@ -221,6 +211,68 @@ do_spa()
 
 }
 
+# create a do_tomo function
+#based on assigned tasks will direct code to nesscary funcs
+#- reconstruct - aretomo
+#- generate preview - mrc2mp4
+#- all
+#create do_aretomo 
+# print information about tilt series
+# calls function inside of it, keep track of time
+# 406 *
+do_tomo() {
+  if [ ${NO_PREAMBLE} -eq 0  ]; then
+    do_prepipeline
+    if [[ "$TASK" == "align" || "$TASK" == "sum" || "$TASK" == "all" ]]; then
+      local force=${FORCE}
+      if [ ${NO_FORCE_GAINREF} -eq 1 ]; then
+        FORCE=0
+      fi
+      do_gainref
+      FORCE=$force
+    fi
+  else
+    # still need to determine correct gainref
+    local force=${FORCE}
+    FORCE=0
+    if [[ "$GAINREF_FILE" != "" ]]; then
+      GAINREF_FILE=$(process_gainref "$GAINREF_FILE") || exit $?
+    fi
+    FORCE=$force
+  fi
+
+  echo "tomographic_analysis:"
+  if [[ "$TASK" == "reconstruct" || "$TASK" == "all" ]]; then
+    echo "  - task: reconstruct"
+    local start=$(date +%s.%N)
+    #we will want to add the mdoc file as an input here
+    #we also may want to have the dose weighted tomogram as the output so that we can use it as input for the generate_preview function
+    #e.g. 
+    #TOMOGRAM=$(tomo_3D_reconstruction "$MDOC") || exit $?
+    tomo_3D_reconstruction
+    local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
+    echo "    duration: $duration"
+    echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
+  fi
+
+
+  if [[ "$TASK" == "preview" || "$TASK" == "all" ]]; then
+    echo "  - task: preview"
+    local start=$(date +%s.%N)
+    #we will want to add the tomogram as the input to the generate_preview function 
+    #e.g. 
+    #PREVIEW_FILE=$(generate_preview "$TOMOGRAM") || exit $?
+    #along with a check to be sure that the TOMOGRAM file is found
+    #may want to modularize this more 
+    PREVIEW_FILE=$(generate_preview) || exit $?
+    echo "    files:"
+    dump_file_meta "${PREVIEW_FILE}" || exit $?
+    local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
+    echo "    duration: $duration"
+    echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
+  fi
+}
+
 
 # write out record of data
 do_prepipeline()
@@ -322,19 +374,6 @@ process_gainref()
   
   echo $output
 }
-
-#We don't need to calculate these variables because they will be provided by the user
-#in the logbook and passed to the script as arguments!
-
-#calculating variables for AreTomo3
-#calculate_variables() {
-#  #calculate fm_dose and fm_int
-#  A_PIX=${APIX:-$(get_mdoc_apix)}
-#  K_V=${KV:-$(get_mdoc_voltage)}
-
-
-#  echo "$fm_dose $fm_int"
-#}
 
 #original script contains a variety of functions called motioncor_file, align_file, etc.
 #the purpose of these functions is to generate an expected output file name 
@@ -494,6 +533,7 @@ dump_file_meta()
   echo "        create_timestamp: $create_timestamp"
 }
 
+<<<<<<< HEAD
 do_mp4() {
    
 }
@@ -547,6 +587,12 @@ do_tomo() {
     echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
   fi
 }
+=======
+#think this would be the same thing as the generate_preview function? 
+#do_mp4() {
+#   
+#}
+>>>>>>> 4005bcdd3890cf36214b24c7067955b196c91493
 
 
 set -e
