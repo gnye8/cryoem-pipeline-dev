@@ -245,6 +245,10 @@ do_tomo() {
   if [[ "$TASK" == "reconstruct" || "$TASK" == "all" ]]; then
     echo "  - task: reconstruct"
     local start=$(date +%s.%N)
+    #we will want to add the mdoc file as an input here
+    #we also may want to have the dose weighted tomogram as the output so that we can use it as input for the generate_preview function
+    #e.g. 
+    #TOMOGRAM=$(tomo_3D_reconstruction "$MDOC") || exit $?
     tomo_3D_reconstruction
     local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
     echo "    duration: $duration"
@@ -255,6 +259,10 @@ do_tomo() {
   if [[ "$TASK" == "preview" || "$TASK" == "all" ]]; then
     echo "  - task: preview"
     local start=$(date +%s.%N)
+    #we will want to add the tomogram as the input to the generate_preview function 
+    #e.g. 
+    #PREVIEW_FILE=$(generate_preview "$TOMOGRAM") || exit $?
+    #along with a check to be sure that the TOMOGRAM file is found
     PREVIEW_FILE=$(generate_preview) || exit $?
     echo "    files:"
     dump_file_meta "${PREVIEW_FILE}" || exit $?
