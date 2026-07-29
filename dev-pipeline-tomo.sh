@@ -246,10 +246,12 @@ do_tomo() {
     echo "  - task: reconstruct"
     local start=$(date +%s.%N)
     #we will want to add the mdoc file as an input here
-    #we also may want to have the dose weighted tomogram as the output so that we can use it as input for the generate_preview function
-    #e.g. 
-    #TOMOGRAM=$(tomo_3D_reconstruction "$MDOC") || exit $?
     tomo_3D_reconstruction
+    #we also may want to have the dose weighted tomogram as the output so that we can use it as input for the generate_preview function
+    #call tomo_3D_reconstruction as is (make sure to include mdoc and gainref as input)
+    #then write separate func, maybe just tomogram() that will find the correct tomogram file
+    #then call it here using something like
+    #TOMOGRAM=$(tomogram) || exit $?
     local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
     echo "    duration: $duration"
     echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
@@ -386,14 +388,14 @@ process_gainref()
 tomo_3D_reconstruction() { #1063 *
   # Commands
   module load ${ARETOMO_LOAD} || exit $?
-  cmd=0
+  cmd=0 #edit this so that the default is 0
   prefix="[absolute path to tilt prefix]"
   gain_ref="[absolute path to gain reference]"
   outdir="/[absolute path to output directory]" #must be pre-created
-  GPU={"0 1 2 3"}
+  GPU={"0 1 2 3"} #ask s3df guys about this
   MCPATCH=${MCPATCH:-5 5}
-  FMDOSE=0.5 
-  FMINT=1
+  #FMDOSE=0.5 
+  #FMINT=1
   SPLITSUM=${SPLITSUM:-1}
   VOLZ=${VOLZ:-1}
   ALIGNZ=${ALIGNZ:-0}
@@ -411,8 +413,8 @@ tomo_3D_reconstruction() { #1063 *
       -Gpu ${GPU} \
       -PixSize ${APIX} \
       -McPatch ${MCPATCH} \
-      -FmInt ${FMINT} \
-      -FmDose ${FMDOSE} \
+      -FmInt ${FMINT} \ # we will get rid of this as explicit input to the command so that aretomo will automatically pull it from the mdoc file 
+      -FmDose ${FMDOSE} \ # we will get rid of this as explicit input to the command so that aretomo will automatically pull it from the mdoc file 
       -SplitSum ${SPLITSUM} \
       -VolZ ${VOLZ} \
       -AlignZ ${ALIGNZ} \
@@ -424,6 +426,11 @@ tomo_3D_reconstruction() { #1063 *
       -Cs ${CS}
 
 }
+
+
+#write func here to find and return the tomogram file
+tomogram() {
+
 
 #genrate mp4 function *1223*
 generate_preview() {
