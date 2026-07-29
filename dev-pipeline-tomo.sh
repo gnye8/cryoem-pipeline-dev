@@ -351,12 +351,10 @@ tomo_3D_reconstruction() { #1063 *
   prefix="[absolute path to tilt prefix]"
   gain_ref="[absolute path to gain reference]"
   outdir="/[absolute path to output directory]" #must be pre-created
-  GPU=${0 1 2 3}
-  APIX="{$APIX}"
+  GPU={"0 1 2 3"}
   MCPATCH=${MCPATCH:-5 5}
   FMDOSE=0.5 
-  FMINT=1 
-  KV=${KV:-300}
+  FMINT=1
   SPLITSUM=${SPLITSUM:-1}
   VOLZ=${VOLZ:-1}
   ALIGNZ=${ALIGNZ:-0}
@@ -364,7 +362,6 @@ tomo_3D_reconstruction() { #1063 *
   FLIPGAIN=${FLIPGAIN:-1}
   ATPATCH=${ATPATCH:-4 4}
   WBP=${WBP:-1}
-  CS=${CS:-2.7}
 
   AreTomo3 \ 
       -Cmd ${cmd} \
@@ -378,7 +375,7 @@ tomo_3D_reconstruction() { #1063 *
       -FmInt ${FMINT} \
       -FmDose ${FMDOSE} \
       -SplitSum ${SPLITSUM} \
-      -VolZ ${VOLZ} \ 
+      -VolZ ${VOLZ} \
       -AlignZ ${ALIGNZ} \
       -AtBin ${ATBIN} \
       -FlipGain ${FLIPGAIN} \
@@ -511,6 +508,27 @@ do_mp4() {
 # calls function inside of it, keep track of time
 # 406 *
 do_tomo() {
+  if [ ${NO_PREAMBLE} -eq 0  ]; then
+    do_prepipeline
+    if [[ "$TASK" == "align" || "$TASK" == "sum" || "$TASK" == "all" ]]; then
+      local force=${FORCE}
+      if [ ${NO_FORCE_GAINREF} -eq 1 ]; then
+        FORCE=0
+      fi
+      do_gainref
+      FORCE=$force
+    fi
+  else
+    # still need to determine correct gainref
+    local force=${FORCE}
+    FORCE=0
+    if [[ "$GAINREF_FILE" != "" ]]; then
+      GAINREF_FILE=$(process_gainref "$GAINREF_FILE") || exit $?
+    fi
+    FORCE=$force
+  fi
+
+  echo "tomographic_analysis:"
   if [[ "$TASK" == "reconstruct" || "$TASK" == "all" ]]; then
     echo "  - task: reconstruct"
     local start=$(date +%s.%N)
@@ -519,10 +537,14 @@ do_tomo() {
     echo "    duration: $duration"
     echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
   fi
+
+
   if [[ "$TASK" == "preview" || "$TASK" == "all" ]]; then
     echo "  - task: preview"
     local start=$(date +%s.%N)
-    generate_preview "${[mrc file]}" # !! mrc file needs to be defined /outdir what? maybe should happen in 
+    PREVIEW_FILE=$(generate_preview) || exit $?
+    echo "    files:"
+    dump_file_meta "${PREVIEW_FILE}" || exit $?
     local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
     echo "    duration: $duration"
     echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
