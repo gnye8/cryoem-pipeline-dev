@@ -263,6 +263,7 @@ do_tomo() {
     #e.g. 
     #PREVIEW_FILE=$(generate_preview "$TOMOGRAM") || exit $?
     #along with a check to be sure that the TOMOGRAM file is found
+    #may want to modularize this more 
     PREVIEW_FILE=$(generate_preview) || exit $?
     echo "    files:"
     dump_file_meta "${PREVIEW_FILE}" || exit $?
