@@ -33,7 +33,7 @@ MDOC=${MDOC}
 #help function: explains required and optional arguments 
 usage() {
   cat <<__EOF__
-Usage: $0 MICROGRAPH_FILE
+Usage: $0 MDOC_FILE
 
 Mandatory Arguments:
   [-a|--apix FLOAT]            use specified pixel size
@@ -71,7 +71,6 @@ main() {
       "--phase-plate") set -- "$@" "-p";;
       "--mode")    set -- "$@" "-m";;
       "--task")    set -- "$@" "-t";;
-      "--mdoc")    set -- "$@" "-c";;
       *)           set -- "$@" "$arg";;
    esac
   done
@@ -91,18 +90,24 @@ main() {
     F) FORCE=1;;
     m) MODE="$OPTARG";;
     t) TASK="$OPTARG";;
-    c) MDOC="$OPTARG";;
     h) usage; exit 0;;
     ?) usage; exit 1;;
     esac
   done
 
-  # read from mdocs
-  if [[ "$MODE" == "tomo" && -z $MDOC ]]; then
-    echo "Need mdoc filepath [-c|--mdoc] to continue..."
+  MDOCS=${@:$OPTIND}
+  if [ ${#MDOCS[@]} -lt 1 ]; then
+    echo "Need input mdoc MDOC_FILE to continue..."
     usage
     exit 1
   fi
+  
+  # read from mdocs
+  #if [[ "$MODE" == "tomo" && -z $MDOC ]]; then
+  #  echo "Need mdoc filepath [-c|--mdoc] to continue..."
+  #  usage
+  #  exit 1
+  #fi
 
 #ensure all required variables are defined !! 
 if [ -z $APIX ]; then # doesn't allow for apix to be undefined, exits if it is
@@ -129,10 +134,15 @@ if [ -z $FMDOSE ]; then # doesn't allow for fmdose to be undefined, exits if it 
 #the function will ask if the mode is spa, then call do_spa function 
 #if the mode is tomo, then call do_tomo function 
 #else, print an error message and exit 
-if [[ "$MODE" == "spa" ]]; then
-    do_spa
-  elif [[ "$MODE" == "tomo" ]]; then
-    do_tomo
+for MDOC in ${MDOCS}; do
+
+  # strip ./
+  if [[ "$MDOC" = ./* ]]; then MDOC="${MDOC:2}"; fi
+  if [[ "$MODE" == "tomo" ]]; then
+      >&2 echo "MDOC: ${MDOC}"
+      do_tomo
+  elif [[ "$MODE" == "spa" ]]; then
+      do_spa
   else
     echo "Invalid mode specified: $MODE"
     usage
@@ -245,7 +255,8 @@ do_tomo() {
   if [[ "$TASK" == "reconstruct" || "$TASK" == "all" ]]; then
     echo "  - task: reconstruct"
     local start=$(date +%s.%N)
-    #we will want to add the mdoc file as an input here
+    #don't need to add mdoc as input here anymore!! I changed the way mdoc is being passed to the script so that it is now a global variable, and can be accessed by any function in the script
+    #still need to add gain_ref as input though
     tomo_3D_reconstruction
     #we also may want to have the dose weighted tomogram as the output so that we can use it as input for the generate_preview function
     #call tomo_3D_reconstruction as is (make sure to include mdoc and gainref as input)
@@ -293,7 +304,7 @@ do_prepipeline()
   echo "      phase_plate: ${PHASE_PLATE}"
 
   # input mdoc instead of micrograph
-  if [[ "$MODE" == 'mdoc' ]] ; then
+  if [[ "$MODE" == 'tomo' ]] ; then
     echo "  - task: input_mdoc"
     echo "    files:"
     dump_file_meta "${MDOC}" || exit $?
