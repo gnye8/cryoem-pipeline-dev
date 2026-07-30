@@ -26,10 +26,6 @@ AMPLITUDE_CONTRAST=${AMPLITUDE_CONTRAST:-0.1}
 
 #ARETOMO PARAMETERS
 
-
-# READ MDOC
-MDOC=${MDOC}
-
 #help function: explains required and optional arguments 
 usage() {
   cat <<__EOF__
