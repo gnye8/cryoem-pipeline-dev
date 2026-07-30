@@ -276,9 +276,9 @@ do_tomo() {
     #PREVIEW_FILE=$(generate_preview "$TOMOGRAM") || exit $?
     #along with a check to be sure that the TOMOGRAM file is found
     #may want to modularize this more 
-    PREVIEW_FILE=$(generate_preview) || exit $?
+    local preview_path =$(generate_preview "$TOMOGRAM") || exit $? #should this output the mp4 file rather than putting it in the directory?
     echo "    files:"
-    dump_file_meta "${PREVIEW_FILE}" || exit $?
+    dump_file_meta "${preview_path}" || exit $?
     local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
     echo "    duration: $duration"
     echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
@@ -394,20 +394,33 @@ process_gainref()
 #can add this in later if it is needed
 
 
-# TYNIQUE 
+# TYNIQUE
 tomo_3D_reconstruction() {
-  local input="$1"
-  local gainref="$2"
-  local outdir=${3:-reconstructed/aretomo3/$ARETOMO_VERSION}
+  local input="${1:-$MDOC}"
+  local gainref="${2:-$GAINREF_FILE}"
+  local outdir="${3:-reconstructed/aretomo3/$ARETOMO_VERSION}"
 
-  local filename=$(basename -- "$input")
-  local extension="${filename##*.}"
-  local output="$outdir/${filename%.${extension}}_reconstructed.mrc" #created here or elsewhere?
+  if [[ -z "$input" ]]; then
+    >&2 echo "Error: no input mdoc provided for tomogram reconstruction."
+    return 1
+  fi
 
+  if [[ ! -f "$input" ]]; then
+    >&2 echo "Error: input mdoc $input does not exist."
+    return 1
+  fi
+
+  local filename
+  filename=$(basename -- "$input")
+  local stem="${filename%.*}"
+  if [[ "$stem" == "$filename" ]]; then
+    stem="$filename"
+  fi
+
+local output="$outdir/${stem}_reconstructed.mrc"
   >&2 echo 
 
   mkdir -p $outdir
-  # Commands
   
   local aretomo_cmd="" #finish quotes
   AreTomo3 \
@@ -432,20 +445,43 @@ tomo_3D_reconstruction() {
       -Cs ${CS}
 
   module load ${ARETOMO_LOAD} || exit $?
+  # how do we run this? pipeline-tomo looks a bit diff
+  
+  >&2 echo "reconstructing tomogram from $input"
 
+  if [[ ! -f "$output" ]]; then
+    >&2 echo "Warning: expected output $output was not created."
+    return 1
+  fi
 
-
+  echo "$output"
 }
 
-
-#write func here to find and return the tomogram file
+# find and return the reconstructed tomogram file
 tomogram() {
-  output="$outdir/${filename%.${extension}}_reconstructed.mrc"
+  local outdir="${1:-reconstructed/aretomo3/$ARETOMO_VERSION}"
+  local input="${2:-$MDOC}"
 
-  echo $output
+
+  local filename=$(basename -- "$input")
+  local stem="${filename%.*}"
+  if [[ "$stem" == "$filename" ]]; then
+    stem="$filename"
+  fi
+
+  local expected_mrc="$outdir/${stem}_reconstructed.mrc"
+    if [[ -f "$expected_mrc" ]]; then
+      echo "$expected_mrc"
+      return 0
+    else
+      >&2 echo "Error: no tomogram .mrc found in $outdir"
+    return 1
+    fi
+
+  #maybe add something to find other *.mrc in case it doesn't find anything for whatever reason?
+
+
 }
-
-#genrate mp4 function *1223*
 generate_preview() {
   local mrc_input="$1" # take mrc as first arg
   local outdir="${2:-.}" # if no output dir is given, put in current dir
@@ -552,11 +588,6 @@ dump_file_meta()
   echo "        modify_timestamp: $modify_timestamp"
   echo "        create_timestamp: $create_timestamp"
 }
-
-#think this would be the same thing as the generate_preview function? 
-#do_mp4() {
-#   
-#}
 
 
 set -e
