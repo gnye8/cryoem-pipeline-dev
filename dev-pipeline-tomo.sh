@@ -25,6 +25,18 @@ PHASE_PLATE=${PHASE_PLATE:-0}
 AMPLITUDE_CONTRAST=${AMPLITUDE_CONTRAST:-0.1}
 
 #ARETOMO PARAMETERS
+CMD=${CMD:-0}
+GPU=${GPU:-"0 1 2 3"} #ask s3df guys about this
+MCPATCH=${MCPATCH:-5 5}
+#FMDOSE=0.5 
+#FMINT=1
+SPLITSUM=${SPLITSUM:-1}
+VOLZ=${VOLZ:-1}
+ALIGNZ=${ALIGNZ:-0}
+ATBIN=${ATBIN:-4}
+FLIPGAIN=${FLIPGAIN:-1}
+ATPATCH=${ATPATCH:-4 4}
+WBP=${WBP:-1}
 
 #help function: explains required and optional arguments 
 usage() {
@@ -255,10 +267,9 @@ do_tomo() {
     #still need to add gain_ref as input though
     tomo_3D_reconstruction
     #we also may want to have the dose weighted tomogram as the output so that we can use it as input for the generate_preview function
-    #call tomo_3D_reconstruction as is (make sure to include mdoc and gainref as input)
     #then write separate func, maybe just tomogram() that will find the correct tomogram file
     #then call it here using something like
-    #TOMOGRAM=$(tomogram) || exit $?
+    TOMOGRAM=$(tomogram) || exit $?
     local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
     echo "    duration: $duration"
     echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
@@ -273,9 +284,9 @@ do_tomo() {
     #PREVIEW_FILE=$(generate_preview "$TOMOGRAM") || exit $?
     #along with a check to be sure that the TOMOGRAM file is found
     #may want to modularize this more 
-    PREVIEW_FILE=$(generate_preview) || exit $?
+    local preview_path =$(generate_preview "$TOMOGRAM") || exit $? #should this output the mp4 file rather than putting it in the directory?
     echo "    files:"
-    dump_file_meta "${PREVIEW_FILE}" || exit $?
+    dump_file_meta "${preview_path}" || exit $?
     local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
     echo "    duration: $duration"
     echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
@@ -391,37 +402,46 @@ process_gainref()
 #can add this in later if it is needed
 
 
-# TYNIQUE 
-tomo_3D_reconstruction() { #1063 *
-  # Commands
-  module load ${ARETOMO_LOAD} || exit $?
-  cmd=0 #edit this so that the default is 0
-  prefix="[absolute path to tilt prefix]"
-  gain_ref="[absolute path to gain reference]"
-  outdir="/[absolute path to output directory]" #must be pre-created
-  GPU={"0 1 2 3"} #ask s3df guys about this
-  MCPATCH=${MCPATCH:-5 5}
-  #FMDOSE=0.5 
-  #FMINT=1
-  SPLITSUM=${SPLITSUM:-1}
-  VOLZ=${VOLZ:-1}
-  ALIGNZ=${ALIGNZ:-0}
-  ATBIN=${ATBIN:-4}
-  FLIPGAIN=${FLIPGAIN:-1}
-  ATPATCH=${ATPATCH:-4 4}
-  WBP=${WBP:-1}
+# TYNIQUE
+tomo_3D_reconstruction() {
+  local input="${1:-$MDOC}"
+  local gainref="${2:-$GAINREF_FILE}"
+  local outdir="${3:-reconstructed/aretomo3/$ARETOMO_VERSION}"
 
-  AreTomo3 \ 
-      -Cmd ${cmd} \
+  if [[ -z "$input" ]]; then
+    >&2 echo "Error: no input mdoc provided for tomogram reconstruction."
+    return 1
+  fi
+
+  if [[ ! -f "$input" ]]; then
+    >&2 echo "Error: input mdoc $input does not exist."
+    return 1
+  fi
+
+  local filename
+  filename=$(basename -- "$input")
+  local stem="${filename%.*}"
+  if [[ "$stem" == "$filename" ]]; then
+    stem="$filename"
+  fi
+
+local output="$outdir/${stem}_reconstructed.mrc"
+  >&2 echo 
+
+  mkdir -p $outdir
+  
+  local aretomo_cmd="" #finish quotes
+  AreTomo3 \
+      -Cmd ${CMD} \
       -InPrefix "${prefix}" \
       -InSuffix ".mdoc" \
       -Gain "${gain_ref}" \
       -OutDir "${outdir}" \
       -Gpu ${GPU} \
-      -PixSize ${APIX} \
+      -PixSize $(echo $APIX | awk -v superres=$SUPERRES '{ if( superres=="1" ){ print $1/2 }else{ print $1 } }') \
       -McPatch ${MCPATCH} \
-      -FmInt ${FMINT} \ # we will get rid of this as explicit input to the command so that aretomo will automatically pull it from the mdoc file 
-      -FmDose ${FMDOSE} \ # we will get rid of this as explicit input to the command so that aretomo will automatically pull it from the mdoc file 
+      # -FmInt ${FMINT} \ # we will get rid of this as explicit input to the command so that aretomo will automatically pull it from the mdoc file 
+      # -FmDose ${FMDOSE} \ # we will get rid of this as explicit input to the command so that aretomo will automatically pull it from the mdoc file 
       -SplitSum ${SPLITSUM} \
       -VolZ ${VOLZ} \
       -AlignZ ${ALIGNZ} \
@@ -432,14 +452,44 @@ tomo_3D_reconstruction() { #1063 *
       -kV ${KV} \
       -Cs ${CS}
 
+  module load ${ARETOMO_LOAD} || exit $?
+  # how do we run this? pipeline-tomo looks a bit diff
+  
+  >&2 echo "reconstructing tomogram from $input"
+
+  if [[ ! -f "$output" ]]; then
+    >&2 echo "Warning: expected output $output was not created."
+    return 1
+  fi
+
+  echo "$output"
 }
 
-
-#write func here to find and return the tomogram file
+# find and return the reconstructed tomogram file
 tomogram() {
+  local outdir="${1:-reconstructed/aretomo3/$ARETOMO_VERSION}"
+  local input="${2:-$MDOC}"
 
 
-#genrate mp4 function *1223*
+  local filename=$(basename -- "$input")
+  local stem="${filename%.*}"
+  if [[ "$stem" == "$filename" ]]; then
+    stem="$filename"
+  fi
+
+  local expected_mrc="$outdir/${stem}_reconstructed.mrc"
+    if [[ -f "$expected_mrc" ]]; then
+      echo "$expected_mrc"
+      return 0
+    else
+      >&2 echo "Error: no tomogram .mrc found in $outdir"
+    return 1
+    fi
+
+  #maybe add something to find other *.mrc in case it doesn't find anything for whatever reason?
+
+
+}
 generate_preview() {
   local mrc_input="$1" # take mrc as first arg
   local outdir="${2:-.}" # if no output dir is given, put in current dir
@@ -546,11 +596,6 @@ dump_file_meta()
   echo "        modify_timestamp: $modify_timestamp"
   echo "        create_timestamp: $create_timestamp"
 }
-
-#think this would be the same thing as the generate_preview function? 
-#do_mp4() {
-#   
-#}
 
 
 set -e
