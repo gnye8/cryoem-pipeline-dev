@@ -132,9 +132,32 @@ if [ -z $FMDOSE ]; then # doesn't allow for fmdose to be undefined, exits if it 
   fi
 
 
-#TO DO: add function to check if all raw movies can be found in the same folder as the mdoc file
-#if not, print an error message and exit
-#make sure common path is defined
+ensure_all_files() {
+  local mdoc=${$MDOC}
+  local mdoc_dir=$(dirname "$mdoc")
+  local name
+  local prefix
+  local expected_files
+  #parse full tilt series path
+  name=$(awk '/SubFramePath = / { print $3; exit }' "$mdoc")
+  name=$(basename "$name")
+  name="${name%.mrc}"
+  #parse tilt series
+  prefix="${name%[0-9]*}"
+  # parse number of files
+  expected_files=$(echo "$name" | sed -E 's/.*_([0-9]+)_.*/\1/')
+  expected_files=$(printf '%03d' "$expected_files")
+
+  #convert counted files to num with leading zeros to match file num format
+  counted_files=$(printf '%03d' "$(( $(grep -l "^${prefix}" "$mdoc_dir"/* 2>/dev/null | wc -l) + 1 ))") #this won't work 
+
+  #check that there are at least as many files as expected 
+  if [[ "$counted_files" -lt "$expected_files" ]]; then
+    >&2 echo "Error: all expected files not in $mdoc_dir!"
+    exit 1
+  fi
+  
+}
 
 #TO DO: add function to kick things off based on the mode
 #and the task specified by the user, and call the appropriate functions 
@@ -156,6 +179,7 @@ for MDOC in ${MDOCS}; do
     usage
     exit 1
   fi
+done
 }
 
 
@@ -229,7 +253,7 @@ do_spa()
 
 }
 
-# create a do_tomo function
+
 #based on assigned tasks will direct code to necessary funcs
 #- reconstruct - aretomo
 #- generate preview - mrc2mp4
@@ -237,7 +261,6 @@ do_spa()
 #create do_aretomo 
 # print information about tilt series
 # calls function inside of it, keep track of time
-# 406 *
 do_tomo() {
   if [ ${NO_PREAMBLE} -eq 0  ]; then
     do_prepipeline
@@ -261,12 +284,13 @@ do_tomo() {
 
   echo "tomographic_analysis:"
   if [[ "$TASK" == "reconstruct" || "$TASK" == "all" ]]; then
+    ensure_all_files "$MDOC"
     echo "  - task: reconstruct"
     local start=$(date +%s.%N)
     # pass the current mdoc and gainref into the reconstruction function
     tomo_reconstruction "$MDOC" "$GAINREF_FILE" || exit $?
     #we also may want to have the dose weighted tomogram as the output so that we can use it as input for the generate_preview function
-    TOMOGRAM=$(tomogram) || exit $?
+    TOMOGRAM=$(tomogram "$MDOC") || exit $?
     local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
     echo "    duration: $duration"
     echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
@@ -312,6 +336,10 @@ do_prepipeline()
     echo "    files:"
     dump_file_meta "${MDOC}" || exit $?
   fi
+}
+
+function gen_template() {
+  eval "echo \"$1\""
 }
 
 # calls the process gain ref func
@@ -401,14 +429,14 @@ process_gainref()
 # TYNIQUE
 tomo_reconstruction() {
   #prev tomo_3D
-  local input="${1:-$MDOC}" #redundant
-  local gainref="${2:-$GAINREF_FILE}"
+  local input=$1 
+  local gainref=$2
   local outdir="${3:-reconstructed/aretomo3/$ARETOMO_VERSION}"
-  local filename=$(basename -- "$input")
-  local prefix="${filename%.*}"
-  if [[ "$prefix" == "$filename" ]]; then
-    prefix="$filename"
-  fi
+  local prefix=$(basename "$input" .mdoc) # strip extension of mdoc
+
+  # if [[ "$prefix" == "$filename" ]]; then
+  #  prefix="$filename"
+  # fi
 
   if [[ -z "$input" ]]; then
     >&2 echo "Error: no input mdoc provided for tomogram reconstruction."
@@ -427,7 +455,7 @@ tomo_reconstruction() {
   local aretomo_cmd="
   AreTomo3 \
       -Cmd ${CMD} \
-      -InPrefix "${prefix}" \
+      -InPrefix "${prefix}" \ # full path
       -InSuffix ".mdoc" \
       -Gain "${gainref}" \
       -OutDir "${outdir}" \
@@ -445,9 +473,12 @@ tomo_reconstruction() {
       -Cs ${CS}
   "
 
+  reconstruct_command=$(gen_template "$aretomo_cmd") || exit $?
+  >&2 echo "executing:" $reconstruct_command
   module load ${ARETOMO_LOAD} || exit $?
+  >&2 eval $reconstruct_command  || echo $?
 
-  local tomogram_mrc="$outdir/${prefix}_reconstructed.mrc"
+  local tomogram_mrc="$outdir/${prefix}.mrc" #change to find 
 
   if [[ ! -f "$tomogram_mrc" ]]; then
     >&2 echo "Warning: expected output $tomogram_mrc was not created."
@@ -457,15 +488,16 @@ tomo_reconstruction() {
 
 # find and return the reconstructed tomogram file
 tomogram() {
-  # local input="${1:-$MDOC}"
+  local input=$1
   local outdir="${2:-reconstructed/aretomo3/$ARETOMO_VERSION}"
-  local filename=$(basename -- "$MDOC")
+  local filename=$(basename -- "$input")
   local prefix="${filename%.*}"
   if [[ "$prefix" == "$filename" ]]; then
     prefix="$filename"
   fi
 
-  local tomogram_mrc="$outdir/${prefix}_reconstructed.mrc"
+  # check naming convention 
+  local tomogram_mrc="$outdir/${prefix}.mrc" 
   if [[ -f "$tomogram_mrc" ]]; then
     echo "$tomogram_mrc"
     return 0
@@ -476,7 +508,7 @@ tomogram() {
 
   #maybe add something to find other *.mrc in case it doesn't find anything for whatever reason?
 
-  echo "$expected_mrc"
+  echo "$tomogram_mrc"
 
 }
 generate_preview() {
@@ -531,15 +563,15 @@ generate_preview() {
     rm -f "$outdir/${filename}"*.tif
   fi
 
-  #makes sure output is there
+  # makes sure output is there
   if [ ! -e "$output" ]; then
-      >&2 echo "could not generate .mp4 file $output!"
-      exit 4
+    >&2 echo "could not generate .mp4 file $output!"
+    exit 4
+  fi
 
   >&2 echo "done!"
-  echo $output
-  fi 
-  }
+  echo "$output"
+}
 
 #generate/dump file meta (smth similar) *1370*
 generate_file_meta()
