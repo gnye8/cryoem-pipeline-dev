@@ -152,7 +152,7 @@ ensure_all_files() {
   counted_files=$(printf '%03d' "$(( $(grep -l "^${prefix}" "$mdoc_dir"/* 2>/dev/null | wc -l) + 1 ))") #this won't work 
 
   #check that there are at least as many files as expected 
-  if [[ "$counted_files" -lt "$expected_files" ]]; then
+  f [[ "$counted_files" -lt "$expected_files" ]]; then
     >&2 echo "Error: all expected files not in $mdoc_dir!"
     exit 1
   fi
