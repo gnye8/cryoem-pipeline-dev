@@ -56,7 +56,7 @@ Optional Arguments:
   [-p|--phase-plate]           input microgrpah was taken using a phase plate (so we should calculate the phase)
   [-f|--force]                 reprocess all steps (ignore existing results).
   [-m|--mode [spa|tomo]]       pipeline to use: single particle analysis of tomography
-  [-t|--task sum|align|pick|all] what to process; sum the stack, align the stack; just particle pick or all
+  [-t|--task sum|align|pick|reconstruct|preview|all] what to process; sum the stack, align the stack; just particle pick; reconstruct tomogram; generate preview of tomogram; or all
 
 __EOF__
 }
@@ -241,7 +241,7 @@ do_spa()
 do_tomo() {
   if [ ${NO_PREAMBLE} -eq 0  ]; then
     do_prepipeline
-    if [[ "$TASK" == "align" || "$TASK" == "sum" || "$TASK" == "all" ]]; then
+    if [[ "$TASK" == "reconstruct" || "$TASK" == "preview" || "$TASK" == "all" ]]; then
       local force=${FORCE}
       if [ ${NO_FORCE_GAINREF} -eq 1 ]; then
         FORCE=0
@@ -284,7 +284,7 @@ do_tomo() {
     #PREVIEW_FILE=$(generate_preview "$TOMOGRAM") || exit $?
     #along with a check to be sure that the TOMOGRAM file is found
     #may want to modularize this more 
-    local preview_path =$(generate_preview "$TOMOGRAM") || exit $? #should this output the mp4 file rather than putting it in the directory?
+    local preview_path=$(generate_preview "$TOMOGRAM") || exit $? #should this output the mp4 file rather than putting it in the directory?
     echo "    files:"
     dump_file_meta "${preview_path}" || exit $?
     local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
