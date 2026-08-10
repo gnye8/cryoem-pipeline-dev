@@ -5,7 +5,7 @@
 IMOD_VERSION="5.1.11"
 IMOD_LOAD="imod/${IMOD_VERSION}" #update version
 ARETOMO_VERSION="2.3.0"
-ARETOMO_LOAD="aretomo/${ARETOMO_VERSION}"
+ARETOMO_LOAD="aretomo3/${ARETOMO_VERSION}"
 
 
 # GENERATE
@@ -103,7 +103,14 @@ main() {
     esac
   done
 
+  GAINREF_FILE="${GAINREF_FILE:-$GAINREF}"
+  OUTDIR="${OUTDIR:-$OUTDIR}"
+
   MDOCS=${@:$OPTIND}
+  # FIX: fall back to the global $INPUT if no positional mdoc arg was given.
+  # See the warning near the top of this file — $INPUT must point at an
+  # actual .mdoc file f=or this to work, not a dataset directory.
+  MDOCS="${MDOCS:-$INPUT}'.mdoc'"
   if [ ${#MDOCS[@]} -lt 1 ]; then
     echo "Need input mdoc MDOC_FILE to continue..."
     usage
@@ -118,46 +125,46 @@ main() {
   #fi
 
 #ensure all required variables are defined !! 
-if [ -z $APIX ]; then # doesn't allow for apix to be undefined, exits if it is
+if [ -z "$APIX" ]; then # doesn't allow for apix to be undefined, exits if it is
     echo "Need pixel size [-a|--apix] to continue..."
     usage
     exit 1
   fi
 
 #TO DO: add function to check if fmdose is defined
-if [ -z $FMDOSE ]; then # doesn't allow for fmdose to be undefined, exits if it is
+if [ -z "$FMDOSE" ]; then # doesn't allow for fmdose to be undefined, exits if it is
     echo "Need fmdose [-d|--fmdose] to continue..."
     usage
     exit 1
   fi
 
-
-ensure_all_files() {
-  local mdoc=${$MDOC}
-  local mdoc_dir=$(dirname "$mdoc")
-  local name
-  local prefix
-  local expected_files
-  #parse full tilt series path
-  name=$(awk '/SubFramePath = / { print $3; exit }' "$mdoc")
-  name=$(basename "$name")
-  name="${name%.mrc}"
-  #parse tilt series
-  prefix="${name%[0-9]*}"
-  # parse number of files
-  expected_files=$(echo "$name" | sed -E 's/.*_([0-9]+)_.*/\1/')
-  expected_files=$(printf '%03d' "$expected_files")
+#deal with this later
+#ensure_all_files() {
+#  local mdoc="$1"
+#  local mdoc_dir=$(dirname "$mdoc")
+#  local name
+#  local prefix
+#  local expected_files
+#  #parse full tilt series path
+#  name=$(awk '/SubFramePath = / { print $3; exit }' "$mdoc")
+#  name=$(basename "$name")
+#  name="${name%.mrc}"
+#  #parse tilt series
+#  prefix="${name%[0-9]*}"
+#  # parse number of files
+#  expected_files=$(echo "$name" | sed -E 's/.*_([0-9]+)_.*/\1/')
+#  expected_files=$(printf '%03d' "$expected_files")
 
   #convert counted files to num with leading zeros to match file num format
-  counted_files=$(printf '%03d' "$(( $(grep -l "^${prefix}" "$mdoc_dir"/* 2>/dev/null | wc -l) + 1 ))") #this won't work 
+  #counted_files=$(printf '%03d' "$(( $(grep -l "^${prefix}" "$mdoc_dir"/* 2>/dev/null | wc -l) + 1 ))") #this won't work 
 
   #check that there are at least as many files as expected 
-  f [[ "$counted_files" -lt "$expected_files" ]]; then
-    >&2 echo "Error: all expected files not in $mdoc_dir!"
-    exit 1
-  fi
-  
-}
+  #if [[ "$counted_files" -lt "$expected_files" ]]; then
+  #  >&2 echo "Error: all expected files not in $mdoc_dir!"
+  #  exit 1
+  #fi
+#  
+#}
 
 #TO DO: add function to kick things off based on the mode
 #and the task specified by the user, and call the appropriate functions 
@@ -284,7 +291,7 @@ do_tomo() {
 
   echo "tomographic_analysis:"
   if [[ "$TASK" == "reconstruct" || "$TASK" == "all" ]]; then
-    ensure_all_files "$MDOC"
+  #  ensure_all_files "$MDOC"
     echo "  - task: reconstruct"
     local start=$(date +%s.%N)
     # pass the current mdoc and gainref into the reconstruction function
@@ -372,7 +379,7 @@ process_gainref()
   
   local filename=$(basename -- "$input")
   local extension="${filename##*.}"
-  local output="$outdir/${filename}"
+  local output="$outdir${filename}" #take off slash lets see what happens
 
   if [ ! -e "$input" ]; then
     >&2 echo "gainref file $input does not exist!"
@@ -429,9 +436,9 @@ process_gainref()
 # TYNIQUE
 tomo_reconstruction() {
   #prev tomo_3D
-  local input=$1 
-  local gainref=$2
-  local outdir="${3:-reconstructed/aretomo3/$ARETOMO_VERSION}"
+  local input="${1:-$INPUT}"
+  local gainref="${2:-$GAINREF}" 
+  local outdir="${3:-$OUTDIR}"
   local prefix=$(basename "$input" .mdoc) # strip extension of mdoc
 
   # if [[ "$prefix" == "$filename" ]]; then
@@ -455,10 +462,10 @@ tomo_reconstruction() {
   local aretomo_cmd="
   AreTomo3 \
       -Cmd ${CMD} \
-      -InPrefix "${prefix}" \ # full path
+      -InPrefix ${input} \
       -InSuffix ".mdoc" \
-      -Gain "${gainref}" \
-      -OutDir "${outdir}" \
+      -Gain ${gainref} \
+      -OutDir ${outdir} \
       -Gpu ${GPU} \
       -PixSize $(echo $APIX | awk -v superres=$SUPERRES '{ if( superres=="1" ){ print $1/2 }else{ print $1 } }') \
       -McPatch ${MCPATCH} \
@@ -584,7 +591,8 @@ generate_file_meta()
     >&2 echo "file $file does not exist!"
     exit 4
   fi
-  local md5file="$1.md5"
+
+  local md5file="${1%.*}.md5"
   if [ -e "$md5file" ]; then
     >&2 echo "md5 checksum file $md5file already exists..."
   fi
