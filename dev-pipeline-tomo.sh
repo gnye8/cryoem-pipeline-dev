@@ -106,10 +106,7 @@ main() {
   GAINREF_FILE="${GAINREF_FILE:-$GAINREF}"
   OUTDIR="${OUTDIR:-$OUTDIR}"
 
-  MDOCS=${@:$OPTIND}
-  # FIX: fall back to the global $INPUT if no positional mdoc arg was given.
-  # See the warning near the top of this file — $INPUT must point at an
-  # actual .mdoc file f=or this to work, not a dataset directory.
+  MDOCS=("${@:$OPTIND}")
   MDOCS="${MDOCS:-$INPUT}'.mdoc'"
   if [ ${#MDOCS[@]} -lt 1 ]; then
     echo "Need input mdoc MDOC_FILE to continue..."
