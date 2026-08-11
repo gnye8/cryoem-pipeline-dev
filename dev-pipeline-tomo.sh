@@ -56,7 +56,7 @@ Optional Arguments:
   [-p|--phase-plate]           input microgrpah was taken using a phase plate (so we should calculate the phase)
   [-f|--force]                 reprocess all steps (ignore existing results).
   [-m|--mode [spa|tomo]]       pipeline to use: single particle analysis of tomography
-  [-t|--task sum|align|pick|all] what to process; sum the stack, align the stack; just particle pick or all
+  [-t|--task sum|align|reconstruct|preview|all] what to process; sum the stack, align the stack; just particle pick; reconstruct tomogram; generate preview of tomogram; or all
 
 __EOF__
 }
@@ -190,70 +190,71 @@ done
 #alternative spa pipeline
 do_spa()
 {
+  echo "single_particle_analysis: TO DO"
+  #may end up just deleting all this because it is calling functions that are not defined in this script, and we don't need them for the tomo pipeline
 
-  if [ ${NO_PREAMBLE} -eq 0  ]; then
-    do_prepipeline
 
-    if [[ "$TASK" == "align" || "$TASK" == "sum" || "$TASK" == "all" ]]; then
-      local force=${FORCE}
-      if [ ${NO_FORCE_GAINREF} -eq 1 ]; then 
-        FORCE=0
-      fi
-      do_gainref
-      FORCE=$force
-    fi
-  else
+
+  #if [ ${NO_PREAMBLE} -eq 0  ]; then
+  #  do_prepipeline
+
+  #  if [[ "$TASK" == "align" || "$TASK" == "sum" || "$TASK" == "all" ]]; then
+  #    local force=${FORCE}
+  #    if [ ${NO_FORCE_GAINREF} -eq 1 ]; then 
+  #      FORCE=0
+  #    fi
+  #    do_gainref
+  #    FORCE=$force
+  #  fi
+  #else
     # still need to determine correct gainref
-    local force=${FORCE}
-    FORCE=0
-    GAINREF_FILE=$(process_gainref "$GAINREF_FILE") || exit $?
-    FORCE=$force
-  fi
+  #  local force=${FORCE}
+  #  FORCE=0
+  #  GAINREF_FILE=$(process_gainref "$GAINREF_FILE") || exit $?
+  #  FORCE=$force
+  #fi
 
-  # start doing something!
-  echo "single_particle_analysis:"
-
-  if [[ "$TASK" == "align" || "$TASK" == "all" ]]; then
-    do_spa_align
-  fi
-  if [[ "$TASK" == "sum" || "$TASK" == "all" ]]; then
-    do_spa_sum
-  fi
+  #if [[ "$TASK" == "align" || "$TASK" == "all" ]]; then
+  #  do_spa_align
+  #fi
+  #if [[ "$TASK" == "sum" || "$TASK" == "all" ]]; then
+  #  do_spa_sum
+  #fi
   #TO DO: Grace will be deprecating the picking task for spa pipeline
-  if [[ "$TASK" == "pick" || "$TASK" == "all" ]]; then
+  #if [[ "$TASK" == "pick" || "$TASK" == "all" ]]; then
     # get the assumed pick file name
-    if [ -z $ALIGNED_FILE ]; then
-      ALIGNED_FILE=$(align_file ${MICROGRAPH})  || exit $?
-    fi
-    do_spa_pick
-  fi
+  #  if [ -z $ALIGNED_FILE ]; then
+  #    ALIGNED_FILE=$(align_file ${MICROGRAPH})  || exit $?
+  #  fi
+  #  do_spa_pick
+  #fi
 
-  if [[ "$TASK" == "preview" || "$TASK" == "all" ]]; then
-    echo "  - task: preview"
-    local start=$(date +%s.%N)
+  #if [[ "$TASK" == "preview" || "$TASK" == "all" ]]; then
+  #  echo "  - task: preview"
+  #  local start=$(date +%s.%N)
     # need to guess filenames
-    if [ "$TASK" == "preview" ]; then
-      ALIGNED_DW_FILE=$(align_dw_file ${MICROGRAPH}) || exit $?
+  #  if [ "$TASK" == "preview" ]; then
+  #    ALIGNED_DW_FILE=$(align_dw_file ${MICROGRAPH}) || exit $?
       #echo "ALIGNED_DW_FILE: $ALIGNED_DW_FILE"
-      ALIGNED_CTF_FILE=$(align_ctf_file "${MICROGRAPH}") || exit $?
+  #    ALIGNED_CTF_FILE=$(align_ctf_file "${MICROGRAPH}") || exit $?
       #echo "ALIGNED_CTF_FILE: $ALIGNED_CTF_FILE"
-      PARTICLE_FILE=$(particle_file ${ALIGNED_DW_FILE}) || exit $?
+      #PARTICLE_FILE=$(particle_file ${ALIGNED_DW_FILE}) || exit $?
       #echo "PARTICLE_FILE: $PARTICLE_FILE"
-      SUMMED_CTF_FILE=$(sum_ctf_file "${MICROGRAPH}") || exit $?
+  #    SUMMED_CTF_FILE=$(sum_ctf_file "${MICROGRAPH}") || exit $?
       # remove the _sum bit if SUMMED_FILE defined
-      if [ ! -z $SUMMED_FILE ]; then
-        SUMMED_CTF_FILE="${SUMMED_CTF_FILE%_sum_ctf.mrc}_ctf.mrc"
+  #    if [ ! -z $SUMMED_FILE ]; then
+  #      SUMMED_CTF_FILE="${SUMMED_CTF_FILE%_sum_ctf.mrc}_ctf.mrc"
         #>&2 echo "SUMMED CTF: $SUMMED_CTF_FILE"
-      fi
+  #    fi
       #echo "SUMMED_CTF_FILE: $SUMMED_CTF_FILE"
-    fi
-    PREVIEW_FILE=$(generate_preview) || exit $?
-    echo "    files:"
-    dump_file_meta "${PREVIEW_FILE}" || exit $?
-    local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
-    echo "    duration: $duration"
-    echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
-  fi
+  #  fi
+  #  PREVIEW_FILE=$(generate_preview) || exit $?
+  #  echo "    files:"
+  #  dump_file_meta "${PREVIEW_FILE}" || exit $?
+  #  local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
+  #  echo "    duration: $duration"
+  #  echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
+  #fi
 
 }
 
@@ -268,7 +269,7 @@ do_spa()
 do_tomo() {
   if [ ${NO_PREAMBLE} -eq 0  ]; then
     do_prepipeline
-    if [[ "$TASK" == "align" || "$TASK" == "sum" || "$TASK" == "all" ]]; then
+    if [[ "$TASK" == "reconstruct" || "$TASK" == "preview" || "$TASK" == "all" ]]; then
       local force=${FORCE}
       if [ ${NO_FORCE_GAINREF} -eq 1 ]; then
         FORCE=0
@@ -550,6 +551,11 @@ generate_preview() {
     # imod command to compute min/max densities
     alterheader -mmm "$mrc_input"
 
+    #add in option to lowpass filter the tomogram before generating the preview?
+    #could look something like this: 
+    #clip filter -l $lowpass $input $tmpfile 1>&2 || exit $?
+    #then the tmpfile would be used as the input for the rest of the preview generation process, and then deleted at the end of the function
+    
     # reads density info from the header and extracts min/max values
     local header_info=$(header "$mrc_input" 2>&1)
     local min_density=$(grep -i 'Minimum Density' <<< "$header_info" | awk -F'\.\.\.' '{print $NF}' | awk '{print $1}')
