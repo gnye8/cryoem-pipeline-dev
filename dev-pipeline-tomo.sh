@@ -302,12 +302,8 @@ do_tomo() {
 
   if [[ "$TASK" == "preview" || "$TASK" == "all" ]]; then
     echo "  - task: preview"
+    TOMOGRAM=$(tomogram "$MDOC") || exit $? 
     local start=$(date +%s.%N)
-    #we will want to add the tomogram as the input to the generate_preview function 
-    #e.g. 
-    #PREVIEW_FILE=$(generate_preview "$TOMOGRAM") || exit $?
-    #along with a check to be sure that the TOMOGRAM file is found
-    #may want to modularize this more 
     local preview_path=$(generate_preview "$TOMOGRAM") || exit $? #should this output the mp4 file rather than putting it in the directory?
     echo "    files:"
     dump_file_meta "${preview_path}" || exit $?
@@ -433,6 +429,7 @@ process_gainref()
 # TYNIQUE
 tomo_reconstruction() {
   #prev tomo_3D
+  nvidia-smi
   local input="${1:-$INPUT}"
   local gainref="${2:-$GAINREF}" 
   local outdir="${3:-$OUTDIR}"
@@ -463,7 +460,7 @@ tomo_reconstruction() {
       -InSuffix .mdoc \
       -Gain ${gainref} \
       -OutDir ${outdir} \
-      -Gpu ${GPU} \
+      -Gpu \"${GPU}\" \
       -PixSize $(echo $APIX | awk -v superres=$SUPERRES '{ if( superres=="1" ){ print $1/2 }else{ print $1 } }') \
       -McPatch ${MCPATCH} \
       -SplitSum ${SPLITSUM} \
@@ -487,6 +484,7 @@ tomo_reconstruction() {
     return $rc
   fi
 
+
   local tomogram_mrc="$outdir/$(basename ${input%.*}).mrc" #change to find 
 
   if [[ ! -f "$tomogram_mrc" ]]; then
@@ -506,7 +504,7 @@ tomogram() {
   fi
 
   # check naming convention 
-  local tomogram_mrc="$outdir/${prefix}.mrc" 
+  local tomogram_mrc="$outdir/$(basename ${input%.*}).mrc"
   if [[ -f "$tomogram_mrc" ]]; then
     echo "$tomogram_mrc"
     return 0
