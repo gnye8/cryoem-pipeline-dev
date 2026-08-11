@@ -26,7 +26,7 @@ AMPLITUDE_CONTRAST=${AMPLITUDE_CONTRAST:-0.1}
 
 #ARETOMO PARAMETERS
 CMD=${CMD:-0}
-GPU=${GPU:-"0 1 2 3"} #ask s3df guys about this
+GPU=${GPU:-0 1 2 3} #ask s3df guys about this
 MCPATCH=${MCPATCH:-5 5}
 #FMDOSE=0.5 # we will get rid of this as explicit input to the command so that aretomo will automatically pull it from the mdoc file 
 #FMINT=1 # we will get rid of this as explicit input to the command so that aretomo will automatically pull it from the mdoc file 
@@ -107,7 +107,7 @@ main() {
   OUTDIR="${OUTDIR:-$OUTDIR}"
 
   MDOCS=("${@:$OPTIND}")
-  MDOCS="${MDOCS:-$INPUT}'.mdoc'"
+  MDOCS="${MDOCS:-$INPUT}"
   if [ ${#MDOCS[@]} -lt 1 ]; then
     echo "Need input mdoc MDOC_FILE to continue..."
     usage
@@ -303,12 +303,8 @@ do_tomo() {
 
   if [[ "$TASK" == "preview" || "$TASK" == "all" ]]; then
     echo "  - task: preview"
+    TOMOGRAM=$(tomogram "$MDOC") || exit $? 
     local start=$(date +%s.%N)
-    #we will want to add the tomogram as the input to the generate_preview function 
-    #e.g. 
-    #PREVIEW_FILE=$(generate_preview "$TOMOGRAM") || exit $?
-    #along with a check to be sure that the TOMOGRAM file is found
-    #may want to modularize this more 
     local preview_path=$(generate_preview "$TOMOGRAM") || exit $? #should this output the mp4 file rather than putting it in the directory?
     echo "    files:"
     dump_file_meta "${preview_path}" || exit $?
@@ -434,10 +430,11 @@ process_gainref()
 # TYNIQUE
 tomo_reconstruction() {
   #prev tomo_3D
+  nvidia-smi
   local input="${1:-$INPUT}"
   local gainref="${2:-$GAINREF}" 
   local outdir="${3:-$OUTDIR}"
-  local prefix=$(basename "$input" .mdoc) # strip extension of mdoc
+  local prefix=${input%.*} # strip extension of mdoc
 
   # if [[ "$prefix" == "$filename" ]]; then
   #  prefix="$filename"
@@ -460,11 +457,11 @@ tomo_reconstruction() {
   local aretomo_cmd="
   AreTomo3 \
       -Cmd ${CMD} \
-      -InPrefix ${input} \
-      -InSuffix ".mdoc" \
+      -InPrefix ${prefix} \
+      -InSuffix .mdoc \
       -Gain ${gainref} \
       -OutDir ${outdir} \
-      -Gpu ${GPU} \
+      -Gpu \"${GPU}\" \
       -PixSize $(echo $APIX | awk -v superres=$SUPERRES '{ if( superres=="1" ){ print $1/2 }else{ print $1 } }') \
       -McPatch ${MCPATCH} \
       -SplitSum ${SPLITSUM} \
@@ -481,9 +478,15 @@ tomo_reconstruction() {
   reconstruct_command=$(gen_template "$aretomo_cmd") || exit $?
   >&2 echo "executing:" $reconstruct_command
   module load ${ARETOMO_LOAD} || exit $?
-  >&2 eval $reconstruct_command  || echo $?
+  >&2 eval "$reconstruct_command"
+  local rc=$?
+  if [[ $rc -ne 0 ]]; then
+    >&2 echo "Error: AreTomo3 exited with code $rc"
+    return $rc
+  fi
 
-  local tomogram_mrc="$outdir/${prefix}.mrc" #change to find 
+
+  local tomogram_mrc="$outdir/$(basename ${input%.*}).mrc" #change to find 
 
   if [[ ! -f "$tomogram_mrc" ]]; then
     >&2 echo "Warning: expected output $tomogram_mrc was not created."
@@ -502,7 +505,7 @@ tomogram() {
   fi
 
   # check naming convention 
-  local tomogram_mrc="$outdir/${prefix}.mrc" 
+  local tomogram_mrc="$outdir/$(basename ${input%.*}).mrc"
   if [[ -f "$tomogram_mrc" ]]; then
     echo "$tomogram_mrc"
     return 0
