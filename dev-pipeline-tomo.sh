@@ -26,7 +26,7 @@ AMPLITUDE_CONTRAST=${AMPLITUDE_CONTRAST:-0.1}
 
 #ARETOMO PARAMETERS
 CMD=${CMD:-0}
-GPU=${GPU:-"0 1 2 3"} #ask s3df guys about this
+GPU=${GPU:-0 1 2 3} #ask s3df guys about this
 MCPATCH=${MCPATCH:-5 5}
 #FMDOSE=0.5 # we will get rid of this as explicit input to the command so that aretomo will automatically pull it from the mdoc file 
 #FMINT=1 # we will get rid of this as explicit input to the command so that aretomo will automatically pull it from the mdoc file 
@@ -107,7 +107,7 @@ main() {
   OUTDIR="${OUTDIR:-$OUTDIR}"
 
   MDOCS=("${@:$OPTIND}")
-  MDOCS="${MDOCS:-$INPUT}'.mdoc'"
+  MDOCS="${MDOCS:-$INPUT}"
   if [ ${#MDOCS[@]} -lt 1 ]; then
     echo "Need input mdoc MDOC_FILE to continue..."
     usage
@@ -436,7 +436,7 @@ tomo_reconstruction() {
   local input="${1:-$INPUT}"
   local gainref="${2:-$GAINREF}" 
   local outdir="${3:-$OUTDIR}"
-  local prefix=$(basename "$input" .mdoc) # strip extension of mdoc
+  local prefix=${input%.*} # strip extension of mdoc
 
   # if [[ "$prefix" == "$filename" ]]; then
   #  prefix="$filename"
@@ -459,8 +459,8 @@ tomo_reconstruction() {
   local aretomo_cmd="
   AreTomo3 \
       -Cmd ${CMD} \
-      -InPrefix ${input} \
-      -InSuffix ".mdoc" \
+      -InPrefix ${prefix} \
+      -InSuffix .mdoc \
       -Gain ${gainref} \
       -OutDir ${outdir} \
       -Gpu ${GPU} \
@@ -480,9 +480,14 @@ tomo_reconstruction() {
   reconstruct_command=$(gen_template "$aretomo_cmd") || exit $?
   >&2 echo "executing:" $reconstruct_command
   module load ${ARETOMO_LOAD} || exit $?
-  >&2 eval $reconstruct_command  || echo $?
+  >&2 eval "$reconstruct_command"
+  local rc=$?
+  if [[ $rc -ne 0 ]]; then
+    >&2 echo "Error: AreTomo3 exited with code $rc"
+    return $rc
+  fi
 
-  local tomogram_mrc="$outdir/${prefix}.mrc" #change to find 
+  local tomogram_mrc="$outdir/$(basename ${input%.*}).mrc" #change to find 
 
   if [[ ! -f "$tomogram_mrc" ]]; then
     >&2 echo "Warning: expected output $tomogram_mrc was not created."
