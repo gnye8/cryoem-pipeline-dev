@@ -53,7 +53,7 @@ Optional Arguments:
   [-b|--basename STR]          output files names with specified STR as prefix
   [-k|--kev INT]               input micrograph was taken with INT keV microscope
   [-s|--superres]              input micrograph was taken in super-resolution mode (so we should half the number of pixels)
-  [-p|--phase-plate]           input microgrpah was taken using a phase plate (so we should calculate the phase)
+  [-p|--phase-plate]           input micrograph was taken using a phase plate (so we should calculate the phase)
   [-f|--force]                 reprocess all steps (ignore existing results).
   [-m|--mode [spa|tomo]]       pipeline to use: single particle analysis of tomography
   [-t|--task sum|align|reconstruct|preview|all] what to process; sum the stack, align the stack; just particle pick; reconstruct tomogram; generate preview of tomogram; or all
@@ -135,7 +135,6 @@ if [ -z "$FMDOSE" ]; then # doesn't allow for fmdose to be undefined, exits if i
     exit 1
   fi
 
-#deal with this later
 ensure_all_files() {
   local mdoc="$1"
   local mdoc_dir
@@ -154,28 +153,57 @@ ensure_all_files() {
     exit 1
   fi
 
-  if [[ "$path" != /* ]]; then
-    path="$mdoc_dir/$path"
+  
+  if [[ "$path" == *\\* ]]; then
+    name="${path##*\\}"
+  else
+    if [[ "$path" != /* ]]; then
+      path="$mdoc_dir/$path"
+    fi
+    dir=$(dirname "$path")
+    if [[ "$dir" != "$mdoc_dir" ]]; then
+      >&2 echo "Error: SubFramePath file is not in the same directory as $mdoc"
+      exit 1
+    fi
+    name=$(basename "$path")
   fi
 
-  dir=$(dirname "$path")
-  if [[ "$dir" != "$mdoc_dir" ]]; then
-    >&2 echo "Error: SubFramePath file is not in the same directory as $mdoc"
-    exit 1
-  fi
-
-  name=$(basename "$path")
   name_no_ext="${name%.mrc}"
-  prefix="${name_no_ext%[0-9]*}"
-  expected_files=$(echo "$name_no_ext" | sed -E 's/.*_([0-9]+)_.*/\1/')
-  if [[ ! "$expected_files" =~ ^[0-9]+$ ]]; then
-    >&2 echo "Error: could not parse expected file count"
+  IFS='_' read -r prefix_part1 prefix_part2 prefix_part3 _rest <<< "$name_no_ext"
+  if [[ -z "$prefix_part1" || -z "$prefix_part2" || -z "$prefix_part3" ]]; then
+    >&2 echo "Error: could not parse prefix from $name"
+    exit 1
+  fi
+  prefix="${prefix_part1}_${prefix_part2}_${prefix_part3}"
+
+  # scan matching files to determine the highest three-digit frame index and count files
+  local max_index=0
+  counted_files=0
+  while IFS= read -r -d '' file; do
+    bn=$(basename "$file")
+    # numeric index is the 4th underscore-separated field
+    num=$(awk -F'_' '{print $4}' <<< "$bn")
+    if [[ "$num" =~ ^[0-9]{3}$ ]]; then
+      n=$((10#$num))
+      counted_files=$((counted_files+1))
+      if (( n > max_index )); then
+        max_index=$n
+      fi
+    fi
+  done < <(find "$mdoc_dir" -maxdepth 1 -type f -name "${prefix}_[0-9][0-9][0-9]_*.mrc" -print0)
+
+  if (( counted_files == 0 )); then
+    >&2 echo "Error: no matching MRC files found for prefix ${prefix} in $mdoc_dir"
     exit 1
   fi
 
-  counted_files=$(find "$mdoc_dir" -maxdepth 1 -type f -name "${prefix}*.mrc" | wc -l)
+  expected_files=$((max_index))
+
+  # for debug 
+  >&2 echo "ensure_all_files: mdoc_dir=$mdoc_dir prefix=$prefix expected_files=$expected_files counted_files=$counted_files"
+
   if [[ "$counted_files" -lt "$expected_files" ]]; then
-    >&2 echo "Error: expected at least $expected_files files matching ${prefix}*.mrc in $mdoc_dir, found $counted_files"
+    >&2 echo "Error: expected at least $expected_files files matching ${prefix}_[0-9][0-9][0-9]_*.mrc in $mdoc_dir, found $counted_files"
     exit 1
   fi
 }
@@ -272,7 +300,6 @@ do_spa()
   #  echo "    duration: $duration"
   #  echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
   #fi
-
 }
 
 
@@ -306,13 +333,22 @@ do_tomo() {
 
   echo "tomographic_analysis:"
   if [[ "$TASK" == "reconstruct" || "$TASK" == "all" ]]; then
-  #  ensure_all_files "$MDOC"
+    ensure_all_files "$MDOC"
     echo "  - task: reconstruct"
     local start=$(date +%s.%N)
-    # pass the current mdoc and gainref into the reconstruction function
-    tomo_reconstruction "$MDOC" "$GAINREF_FILE" || exit $?
-    #we also may want to have the dose weighted tomogram as the output so that we can use it as input for the generate_preview function
-    TOMOGRAM=$(tomogram "$MDOC" "$OUTDIR") || exit $?
+
+    # expected tomogram path (use OUTDIR if set, otherwise default reconstructed path)
+    local outdir="${OUTDIR:-reconstructed/aretomo3/$ARETOMO_VERSION}"
+    local expected_tomogram="${outdir}/$(basename "${MDOC%.*}").mrc"
+
+    if [[ -f "$expected_tomogram" ]]; then
+      >&2 echo "Skipping Reconstruction...tomogram already exists: $expected_tomogram"
+      TOMOGRAM="$expected_tomogram"
+    else
+      tomo_reconstruction "$MDOC" "$GAINREF_FILE" "$outdir" || exit $?
+      TOMOGRAM=$(tomogram "$MDOC" "$outdir") || exit $?
+    fi
+
     local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
     echo "    duration: $duration"
     echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
@@ -447,7 +483,7 @@ process_gainref()
 # TYNIQUE
 tomo_reconstruction() {
   #prev tomo_3D
-  nvidia-smi
+
   local input="${1:-$INPUT}"
   local gainref="${2:-$GAINREF}" 
   local outdir="${3:-reconstructed/aretomo3/$ARETOMO_VERSION}"
