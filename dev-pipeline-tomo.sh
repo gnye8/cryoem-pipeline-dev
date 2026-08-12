@@ -136,32 +136,49 @@ if [ -z "$FMDOSE" ]; then # doesn't allow for fmdose to be undefined, exits if i
   fi
 
 #deal with this later
-#ensure_all_files() {
-#  local mdoc="$1"
-#  local mdoc_dir=$(dirname "$mdoc")
-#  local name
-#  local prefix
-#  local expected_files
-#  #parse full tilt series path
-#  name=$(awk '/SubFramePath = / { print $3; exit }' "$mdoc")
-#  name=$(basename "$name")
-#  name="${name%.mrc}"
-#  #parse tilt series
-#  prefix="${name%[0-9]*}"
-#  # parse number of files
-#  expected_files=$(echo "$name" | sed -E 's/.*_([0-9]+)_.*/\1/')
-#  expected_files=$(printf '%03d' "$expected_files")
+ensure_all_files() {
+  local mdoc="$1"
+  local mdoc_dir
+  local path
+  local name
+  local name_no_ext
+  local prefix
+  local expected_files
+  local counted_files
+  local dir
 
-  #convert counted files to num with leading zeros to match file num format
-  #counted_files=$(printf '%03d' "$(( $(grep -l "^${prefix}" "$mdoc_dir"/* 2>/dev/null | wc -l) + 1 ))") #this won't work 
+  mdoc_dir=$(dirname "$mdoc")
+  path=$(awk '/SubFramePath = / { print $3; exit }' "$mdoc")
+  if [[ -z "$path" ]]; then
+    >&2 echo "Error: SubFramePath not found in $mdoc"
+    exit 1
+  fi
 
-  #check that there are at least as many files as expected 
-  #if [[ "$counted_files" -lt "$expected_files" ]]; then
-  #  >&2 echo "Error: all expected files not in $mdoc_dir!"
-  #  exit 1
-  #fi
-#  
-#}
+  if [[ "$path" != /* ]]; then
+    path="$mdoc_dir/$path"
+  fi
+
+  dir=$(dirname "$path")
+  if [[ "$dir" != "$mdoc_dir" ]]; then
+    >&2 echo "Error: SubFramePath file is not in the same directory as $mdoc"
+    exit 1
+  fi
+
+  name=$(basename "$path")
+  name_no_ext="${name%.mrc}"
+  prefix="${name_no_ext%[0-9]*}"
+  expected_files=$(echo "$name_no_ext" | sed -E 's/.*_([0-9]+)_.*/\1/')
+  if [[ ! "$expected_files" =~ ^[0-9]+$ ]]; then
+    >&2 echo "Error: could not parse expected file count"
+    exit 1
+  fi
+
+  counted_files=$(find "$mdoc_dir" -maxdepth 1 -type f -name "${prefix}*.mrc" | wc -l)
+  if [[ "$counted_files" -lt "$expected_files" ]]; then
+    >&2 echo "Error: expected at least $expected_files files matching ${prefix}*.mrc in $mdoc_dir, found $counted_files"
+    exit 1
+  fi
+}
 
 #TO DO: add function to kick things off based on the mode
 #and the task specified by the user, and call the appropriate functions 
