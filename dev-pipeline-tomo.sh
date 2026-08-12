@@ -295,7 +295,7 @@ do_tomo() {
     # pass the current mdoc and gainref into the reconstruction function
     tomo_reconstruction "$MDOC" "$GAINREF_FILE" || exit $?
     #we also may want to have the dose weighted tomogram as the output so that we can use it as input for the generate_preview function
-    TOMOGRAM=$(tomogram "$MDOC") || exit $?
+    TOMOGRAM=$(tomogram "$MDOC" "$OUTDIR") || exit $?
     local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
     echo "    duration: $duration"
     echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
@@ -303,7 +303,7 @@ do_tomo() {
 
   if [[ "$TASK" == "preview" || "$TASK" == "all" ]]; then
     echo "  - task: preview"
-    TOMOGRAM=$(tomogram "$MDOC") || exit $? 
+    TOMOGRAM=$(tomogram "$MDOC" "$OUTDIR") || exit $? 
     local start=$(date +%s.%N)
     local preview_path=$(generate_preview "$TOMOGRAM") || exit $? #should this output the mp4 file rather than putting it in the directory?
     echo "    files:"
@@ -433,7 +433,7 @@ tomo_reconstruction() {
   nvidia-smi
   local input="${1:-$INPUT}"
   local gainref="${2:-$GAINREF}" 
-  local outdir="${3:-$OUTDIR}"
+  local outdir="${3:-reconstructed/aretomo3/$ARETOMO_VERSION}"
   local prefix=${input%.*} # strip extension of mdoc
 
   # if [[ "$prefix" == "$filename" ]]; then
@@ -541,7 +541,7 @@ generate_preview() {
   local filename=$(basename -- "$mrc_input")
   local extension="${filename##*.}"
   local output="$outdir/${filename%.${extension}}.mp4"
-  mkdir -p "$outdir"
+  mkdir -p "$outdir" #if new output direcory is initialized, create it
 
   # checks if output files already exist, if so, exits to avoid overwriting (necessary? was in old code)
   if [ -e "$output" ]; then
