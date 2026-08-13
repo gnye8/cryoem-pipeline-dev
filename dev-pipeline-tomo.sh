@@ -4,9 +4,9 @@
 #load modules 
 IMOD_VERSION="5.1.11"
 IMOD_LOAD="imod/${IMOD_VERSION}" #update version
-ARETOMO_VERSION="2.3.0"
+ARETOMO_VERSION="2.3.1"
 ARETOMO_LOAD="aretomo3/${ARETOMO_VERSION}"
-
+TASK="reconstruct"
 
 # GENERATE
 # select mode/task and define terms
@@ -27,11 +27,11 @@ AMPLITUDE_CONTRAST=${AMPLITUDE_CONTRAST:-0.1}
 #ARETOMO PARAMETERS
 CMD=${CMD:-0}
 GPU=${GPU:-0 1 2 3} #ask s3df guys about this
-MCPATCH=${MCPATCH:-5 5}
+MCPATCH=${MCPATCH:-4 4}
 #FMDOSE=0.5 # we will get rid of this as explicit input to the command so that aretomo will automatically pull it from the mdoc file 
 #FMINT=1 # we will get rid of this as explicit input to the command so that aretomo will automatically pull it from the mdoc file 
 SPLITSUM=${SPLITSUM:-1}
-VOLZ=${VOLZ:-1}
+VOLZ=${VOLZ:--1}
 ALIGNZ=${ALIGNZ:-0}
 ATBIN=${ATBIN:-4}
 FLIPGAIN=${FLIPGAIN:-1}
@@ -205,6 +205,8 @@ ensure_all_files() {
   if [[ "$counted_files" -lt "$expected_files" ]]; then
     >&2 echo "Error: expected at least $expected_files files matching ${prefix}_[0-9][0-9][0-9]_*.mrc in $mdoc_dir, found $counted_files"
     exit 1
+  else 
+    >&2 echo "All expected files are present in $mdoc_dir!"
   fi
 }
 
@@ -332,15 +334,13 @@ do_tomo() {
   fi
 
   echo "tomographic_analysis:"
+  local outdir="${OUTDIR:-reconstructed/aretomo3/$ARETOMO_VERSION}"
+  local expected_tomogram="${outdir}/$(basename "${MDOC%.*}").mrc"
   if [[ "$TASK" == "reconstruct" || "$TASK" == "all" ]]; then
     ensure_all_files "$MDOC"
     echo "  - task: reconstruct"
     local start=$(date +%s.%N)
-
-    # expected tomogram path (use OUTDIR if set, otherwise default reconstructed path)
-    local outdir="${OUTDIR:-reconstructed/aretomo3/$ARETOMO_VERSION}"
-    local expected_tomogram="${outdir}/$(basename "${MDOC%.*}").mrc"
-
+    
     if [[ -f "$expected_tomogram" ]]; then
       >&2 echo "Skipping Reconstruction...tomogram already exists: $expected_tomogram"
       TOMOGRAM="$expected_tomogram"
@@ -355,12 +355,17 @@ do_tomo() {
   fi
 
   if [[ "$TASK" == "preview" || "$TASK" == "all" ]]; then
-    echo "  - task: preview"
-    TOMOGRAM=$(tomogram "$MDOC" "$OUTDIR") || exit $? 
+    echo "  - task: preview" 
     local start=$(date +%s.%N)
-    local preview_path=$(generate_preview "$TOMOGRAM") || exit $? #should this output the mp4 file rather than putting it in the directory?
-    echo "    files:"
-    dump_file_meta "${preview_path}" || exit $?
+    if [[ ! -f "$expected_tomogram" ]]; then
+      >&2 echo "Error: tomogram file $expected_tomogram does not exist for preview generation."
+      exit 1
+    else
+      TOMOGRAM="$expected_tomogram"
+      local preview_path=$(generate_preview "$TOMOGRAM") || exit $? 
+      echo "    files generated in $preview_path:"
+      dump_file_meta "${preview_path}" || exit $?
+    fi
     local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
     echo "    duration: $duration"
     echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
@@ -514,7 +519,7 @@ tomo_reconstruction() {
       -InSuffix .mdoc \
       -Gain ${gainref} \
       -OutDir ${outdir} \
-      -Gpu \"${GPU}\" \
+      -Gpu ${GPU} \
       -PixSize $(echo $APIX | awk -v superres=$SUPERRES '{ if( superres=="1" ){ print $1/2 }else{ print $1 } }') \
       -McPatch ${MCPATCH} \
       -SplitSum ${SPLITSUM} \
