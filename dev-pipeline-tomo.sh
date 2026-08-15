@@ -1,12 +1,10 @@
 #!/bin/bash -e
 
-
 #load modules 
 IMOD_VERSION="5.1.11"
 IMOD_LOAD="imod/${IMOD_VERSION}" #update version
 ARETOMO_VERSION="2.3.1"
 ARETOMO_LOAD="aretomo3/${ARETOMO_VERSION}"
-TASK="reconstruct"
 
 # GENERATE
 # select mode/task and define terms
@@ -522,6 +520,8 @@ tomo_reconstruction() {
       -Gpu ${GPU} \
       -PixSize $(echo $APIX | awk -v superres=$SUPERRES '{ if( superres=="1" ){ print $1/2 }else{ print $1 } }') \
       -McPatch ${MCPATCH} \
+      -FmDose ${FMDOSE} \
+      -FmInt ${FMINT} \
       -SplitSum ${SPLITSUM} \
       -VolZ ${VOLZ} \
       -AlignZ ${ALIGNZ} \
