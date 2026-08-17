@@ -13,6 +13,7 @@ TASK=${TASK:-all} # task options: generate 3D reconstruction / generate preview
 FORCE=${FORCE:-0}
 NO_FORCE_GAINREF=${NO_FORCE_GAINREF:-0}
 NO_PREAMBLE=${NO_PREAMBLE:-0}
+TASK="rotate"
 
 # SCOPE PARAMS (set by the microscopes)
 CS=${CS:-2.7}
@@ -102,7 +103,7 @@ main() {
   done
 
   GAINREF_FILE="${GAINREF_FILE:-$GAINREF}"
-  OUTDIR="${OUTDIR:-$OUTDIR}"
+  OUTDIR="${OUTDIR:-reconstructed/aretomo3/$ARETOMO_VERSION}"
 
   MDOCS=("${@:$OPTIND}")
   MDOCS="${MDOCS:-$INPUT}"
@@ -151,7 +152,6 @@ ensure_all_files() {
     exit 1
   fi
 
-  
   if [[ "$path" == *\\* ]]; then
     name="${path##*\\}"
   else
@@ -172,6 +172,7 @@ ensure_all_files() {
     >&2 echo "Error: could not parse prefix from $name"
     exit 1
   fi
+
   prefix="${prefix_part1}_${prefix_part2}_${prefix_part3}"
 
   # scan matching files to determine the highest three-digit frame index and count files
@@ -332,13 +333,19 @@ do_tomo() {
   fi
 
   echo "tomographic_analysis:"
-  local outdir="${OUTDIR:-reconstructed/aretomo3/$ARETOMO_VERSION}"
+  local outdir="${OUTDIR}"
   local expected_tomogram="${outdir}/$(basename "${MDOC%.*}").mrc"
+
+  if [[ "$TASK" != "reconstruct" && "$TASK" != "preview" && "$TASK" != "all" ]]; then
+    >&2 echo "Error: Invalid task specified: $TASK . Valid options are: reconstruct, preview, all."
+    usage
+    exit 1
+  fi
+
   if [[ "$TASK" == "reconstruct" || "$TASK" == "all" ]]; then
     ensure_all_files "$MDOC"
     echo "  - task: reconstruct"
     local start=$(date +%s.%N)
-    
     if [[ -f "$expected_tomogram" ]]; then
       >&2 echo "Skipping Reconstruction...tomogram already exists: $expected_tomogram"
       TOMOGRAM="$expected_tomogram"
@@ -346,7 +353,6 @@ do_tomo() {
       tomo_reconstruction "$MDOC" "$GAINREF_FILE" "$outdir" || exit $?
       TOMOGRAM=$(tomogram "$MDOC" "$outdir") || exit $?
     fi
-
     local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
     echo "    duration: $duration"
     echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
@@ -486,10 +492,9 @@ process_gainref()
 # TYNIQUE
 tomo_reconstruction() {
   #prev tomo_3D
-
   local input="${1:-$INPUT}"
   local gainref="${2:-$GAINREF}" 
-  local outdir="${3:-reconstructed/aretomo3/$ARETOMO_VERSION}"
+  local outdir="${3:-OUTDIR}"
   local prefix=${input%.*} # strip extension of mdoc
 
   # if [[ "$prefix" == "$filename" ]]; then
@@ -543,8 +548,7 @@ tomo_reconstruction() {
     return $rc
   fi
 
-
-  local tomogram_mrc="$outdir/$(basename ${input%.*}).mrc" #change to find 
+  local tomogram_mrc="$outdir/$(basename ${input%.*}).mrc" #mdoc basename becomes prefix for .mrc 
 
   if [[ ! -f "$tomogram_mrc" ]]; then
     >&2 echo "Warning: expected output $tomogram_mrc was not created."
@@ -555,14 +559,13 @@ tomo_reconstruction() {
 # find and return the reconstructed tomogram file
 tomogram() {
   local input=$1
-  local outdir="${2:-reconstructed/aretomo3/$ARETOMO_VERSION}"
+  local outdir="${2:-OUTDIR}"
   local filename=$(basename -- "$input")
-  local prefix="${filename%.*}"
+  local prefix="${filename%.*}" #remove extension
   if [[ "$prefix" == "$filename" ]]; then
     prefix="$filename"
   fi
 
-  # check naming convention 
   local tomogram_mrc="$outdir/$(basename ${input%.*}).mrc"
   if [[ -f "$tomogram_mrc" ]]; then
     echo "$tomogram_mrc"
@@ -574,7 +577,7 @@ tomogram() {
 
   #maybe add something to find other *.mrc in case it doesn't find anything for whatever reason?
 
-  echo "$tomogram_mrc"
+  # echo "$tomogram_mrc"
 
 }
 generate_preview() {
