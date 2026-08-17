@@ -13,6 +13,7 @@ TASK=${TASK:-all} # task options: generate 3D reconstruction / generate preview
 FORCE=${FORCE:-0}
 NO_FORCE_GAINREF=${NO_FORCE_GAINREF:-0}
 NO_PREAMBLE=${NO_PREAMBLE:-0}
+TASK="rotate"
 
 # SCOPE PARAMS (set by the microscopes)
 CS=${CS:-2.7}
@@ -44,6 +45,7 @@ Usage: $0 MDOC_FILE
 Mandatory Arguments:
   [-a|--apix FLOAT]            use specified pixel size
   [-d|--fmdose FLOAT]          use specified fmdose in calculations
+  [-i|--fmint FLOAT]          use specified fmint in calculations
 
 Optional Arguments:
   [-g|--gainref GAINREF_FILE]  use specificed gain reference file
@@ -72,6 +74,7 @@ main() {
       "--force")   set -- "$@" "-F";;
       "--apix")    set -- "$@" "-a";;
       "--fmdose")  set -- "$@" "-d";;
+      "--fmint")   set -- "$@" "-i";;
       "--kev")     set -- "$@" "-k";;
       "--superres") set -- "$@" "-s";;
       "--phase-plate") set -- "$@" "-p";;
@@ -83,7 +86,7 @@ main() {
 
 #assigning command line flags to variables
 #Grace: changed defect file variable to e so that two variables weren't using d
-  while getopts "Fhspm:t:l:g:b:a:d:k:e:c:" opt; do
+  while getopts "Fhspm:t:l:g:b:a:d:k:e:c:i:" opt; do
     case "$opt" in
     g) GAINREF_FILE="$OPTARG";;
     e) DEFECT_FILE="$OPTARG";;
@@ -91,6 +94,7 @@ main() {
     a) APIX="$OPTARG";;
     d) FMDOSE="$OPTARG";;
     k) KV="$OPTARG";;
+    i) FMINT="$OPTARG";;
     s) SUPERRES=1;;
     p) PHASE_PLATE=1;;
     F) FORCE=1;;
@@ -102,7 +106,7 @@ main() {
   done
 
   GAINREF_FILE="${GAINREF_FILE:-$GAINREF}"
-  OUTDIR="${OUTDIR:-$OUTDIR}"
+  OUTDIR="${OUTDIR:-reconstructed/aretomo3/$ARETOMO_VERSION}"
 
   MDOCS=("${@:$OPTIND}")
   MDOCS="${MDOCS:-$INPUT}"
@@ -126,12 +130,17 @@ if [ -z "$APIX" ]; then # doesn't allow for apix to be undefined, exits if it is
     exit 1
   fi
 
-#TO DO: add function to check if fmdose is defined
 if [ -z "$FMDOSE" ]; then # doesn't allow for fmdose to be undefined, exits if it is
     echo "Need fmdose [-d|--fmdose] to continue..."
     usage
     exit 1
   fi
+
+if [ -z "$FMINT" ]; then
+  echo "Need fmint [-i|--fmint FLOAT] to continue..."
+  usage
+  exit 1
+
 
 ensure_all_files() {
   local mdoc="$1"
@@ -151,7 +160,6 @@ ensure_all_files() {
     exit 1
   fi
 
-  
   if [[ "$path" == *\\* ]]; then
     name="${path##*\\}"
   else
@@ -172,6 +180,7 @@ ensure_all_files() {
     >&2 echo "Error: could not parse prefix from $name"
     exit 1
   fi
+
   prefix="${prefix_part1}_${prefix_part2}_${prefix_part3}"
 
   # scan matching files to determine the highest three-digit frame index and count files
@@ -332,13 +341,19 @@ do_tomo() {
   fi
 
   echo "tomographic_analysis:"
-  local outdir="${OUTDIR:-reconstructed/aretomo3/$ARETOMO_VERSION}"
+  local outdir="${OUTDIR}"
   local expected_tomogram="${outdir}/$(basename "${MDOC%.*}").mrc"
+
+  if [[ "$TASK" != "reconstruct" && "$TASK" != "preview" && "$TASK" != "all" ]]; then
+    >&2 echo "Error: Invalid task specified: $TASK . Valid options are: reconstruct, preview, all."
+    usage
+    exit 1
+  fi
+
   if [[ "$TASK" == "reconstruct" || "$TASK" == "all" ]]; then
     ensure_all_files "$MDOC"
     echo "  - task: reconstruct"
     local start=$(date +%s.%N)
-    
     if [[ -f "$expected_tomogram" ]]; then
       >&2 echo "Skipping Reconstruction...tomogram already exists: $expected_tomogram"
       TOMOGRAM="$expected_tomogram"
@@ -346,7 +361,6 @@ do_tomo() {
       tomo_reconstruction "$MDOC" "$GAINREF_FILE" "$outdir" || exit $?
       TOMOGRAM=$(tomogram "$MDOC" "$outdir") || exit $?
     fi
-
     local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
     echo "    duration: $duration"
     echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
@@ -486,10 +500,9 @@ process_gainref()
 # TYNIQUE
 tomo_reconstruction() {
   #prev tomo_3D
-
   local input="${1:-$INPUT}"
   local gainref="${2:-$GAINREF}" 
-  local outdir="${3:-reconstructed/aretomo3/$ARETOMO_VERSION}"
+  local outdir="${3:-OUTDIR}"
   local prefix=${input%.*} # strip extension of mdoc
 
   # if [[ "$prefix" == "$filename" ]]; then
@@ -543,8 +556,7 @@ tomo_reconstruction() {
     return $rc
   fi
 
-
-  local tomogram_mrc="$outdir/$(basename ${input%.*}).mrc" #change to find 
+  local tomogram_mrc="$outdir/$(basename ${input%.*}).mrc" #mdoc basename becomes prefix for .mrc 
 
   if [[ ! -f "$tomogram_mrc" ]]; then
     >&2 echo "Warning: expected output $tomogram_mrc was not created."
@@ -555,32 +567,33 @@ tomo_reconstruction() {
 # find and return the reconstructed tomogram file
 tomogram() {
   local input=$1
-  local outdir="${2:-reconstructed/aretomo3/$ARETOMO_VERSION}"
+  local outdir="${2:-OUTDIR}"
   local filename=$(basename -- "$input")
-  local prefix="${filename%.*}"
+  local prefix="${filename%.*}" #remove extension
+  local all_mrc=("$outdir"/*.mrc)
   if [[ "$prefix" == "$filename" ]]; then
     prefix="$filename"
   fi
 
-  # check naming convention 
   local tomogram_mrc="$outdir/$(basename ${input%.*}).mrc"
   if [[ -f "$tomogram_mrc" ]]; then
     echo "$tomogram_mrc"
     return 0
+  elif [[ ${#all_mrc[@]} -gt 0 ]]; then # hard code error checker 
+    >&2 echo "Warning: expected tomogram .mrc not found in $outdir, but found $all_mrc"
+    return 0
   else
-    >&2 echo "Error: no tomogram .mrc found in $outdir"
+    >&2 echo "Error: no tomogram .mrc not found in $outdir"
     return 1
   fi
-
-  #maybe add something to find other *.mrc in case it doesn't find anything for whatever reason?
-
-  echo "$tomogram_mrc"
-
 }
+
 generate_preview() {
   local mrc_input="$1" 
   local outdir="${2:-.}" # if no output dir is given, put in current dir
-  local frame_rate="${3:-4}" # default frame rate is 4 if not specified as arg
+  local lowpass=${3:-}
+  local frame_rate="${4:-4}" # default frame rate is 4 if not specified as arg
+  local format=".mp4" # default format is mp4/only thing code supports
 
   # ensures mrc file is provided
   if [[ -z "$mrc_input" ]]; then
@@ -598,33 +611,43 @@ generate_preview() {
   #create output directory
   local filename=$(basename -- "$mrc_input")
   local extension="${filename##*.}"
-  local output="$outdir/${filename%.${extension}}.mp4"
+  local output="$outdir/${filename%.${extension}}.${format}" # output file name is same as input but with .mp4 extension
   mkdir -p "$outdir" #if new output direcory is initialized, create it
 
-  # checks if output files already exist, if so, exits to avoid overwriting (necessary? was in old code)
+  # checks if output files already exist, if so, exits to avoid overwriting (necessary? in old code)
   if [ -e "$output" ]; then
-    >&2 echo "output file $output already exists!"
+    >&2 echo "preview file $output already exists!"
     exit 1
   else
-    # load imod
+    >&2 echo "generating preview of $mrc_input to $output..."
     module load ${IMOD_LOAD} || exit $?
 
     # imod command to compute min/max densities
     alterheader -mmm "$mrc_input"
 
-    #add in option to lowpass filter the tomogram before generating the preview?
-    #could look something like this: 
-    #clip filter -l $lowpass $input $tmpfile 1>&2 || exit $?
-    #then the tmpfile would be used as the input for the rest of the preview generation process, and then deleted at the end of the function
-    
     # reads density info from the header and extracts min/max values
     local header_info=$(header "$mrc_input" 2>&1)
     local min_density=$(grep -i 'Minimum Density' <<< "$header_info" | awk -F'\.\.\.' '{print $NF}' | awk '{print $1}')
     local max_density=$(grep -i 'Maximum Density' <<< "$header_info" | awk -F'\.\.\.' '{print $NF}' | awk '{print $1}')
 
+    #add in option to lowpass filter the tomogram before generating the preview?
+    #could look something like this: 
+    #clip filter -l $lowpass $input $tmpfile 1>&2 || exit $? ()
+    #then the tmpfile would be used as the input for the rest of the preview generation process, and then deleted at the end of the function
+    tmpfile=$input
+    if [ "$lowpass" != "" ]; then
+      tmpfile=$(mktemp /tmp/pipeline-image.XXXXXX)
+      >&2 echo "executing: clip filter -l $lowpass $input $tmpfile" 1>&2
+      >&2 clip filter -l $lowpass $input $tmpfile || exit $?
+      if [ ! -e $tmpfile ]; then
+        >&2 echo "could not create image $tmpfile... exiting..."
+        exit 4
+      fi
+    fi
+
     echo "executing: .mrc to .tif conversion" 1>&2
     # imod command to convert .mrc to .tif 
-    mrc2tif -C "${min_density}","${max_density}" "$mrc_input" "$outdir/${filename}" 
+    mrc2tif -C "${min_density}","${max_density}" "$tmpfile" "$outdir/${filename}" 
     echo "executing: .tif to .mp4 conversion" 1>&2
     # command to convert to mp4 from tiff 
     ffmpeg -pattern_type glob -framerate "${frame_rate}" -i "$outdir/${filename}"'*.tif' -pix_fmt yuv420p "$output" 1>&2
@@ -634,11 +657,16 @@ generate_preview() {
     rm -f "$outdir/${filename}"*.tif
   fi
 
+  if [ "$lowpass" != "" ]; then
+      >&2 echo "rm -f $tmpfile"
+      rm -f $tmpfile || exit $?
+      
   # makes sure output is there
   if [ ! -e "$output" ]; then
     >&2 echo "could not generate .mp4 file $output!"
     exit 4
   fi
+
 
   >&2 echo "done!"
   echo "$output"
