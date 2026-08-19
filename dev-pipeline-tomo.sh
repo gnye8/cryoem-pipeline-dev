@@ -589,27 +589,27 @@ tomogram() {
 }
 
 generate_preview() {
-  local mrc_input="$1" 
+  local input="$1" 
   local outdir="${2:-.}" # if no output dir is given, put in current dir
-  local lowpass=${3:-}
+  local lowpass="${3:-}"
   local frame_rate="${4:-4}" # default frame rate is 4 if not specified as arg
   local format=".mp4" # default format is mp4/only thing code supports
 
   # ensures mrc file is provided
-  if [[ -z "$mrc_input" ]]; then
+  if [[ -z "$input" ]]; then
       >&2 echo "Error: No .mrc file provided as an argument."
       >&2 echo "Usage: $0 <mrc_file> [output_dir] [frame_rate]"
       exit 1
   fi
   
   # ensures the input file exists
-  if [ ! -e "$mrc_input" ]; then
-    >&2 echo "input file $mrc_input not found!"
+  if [ ! -e "$input" ]; then
+    >&2 echo "input file $input not found!"
     exit  
   fi
 
   #create output directory
-  local filename=$(basename -- "$mrc_input")
+  local filename=$(basename -- "$input")
   local extension="${filename##*.}"
   local output="$outdir/${filename%.${extension}}.${format}" # output file name is same as input but with .mp4 extension
   mkdir -p "$outdir" #if new output direcory is initialized, create it
@@ -619,14 +619,14 @@ generate_preview() {
     >&2 echo "preview file $output already exists!"
     exit 1
   else
-    >&2 echo "generating preview of $mrc_input to $output..."
+    >&2 echo "generating preview of $input to $output..."
     module load ${IMOD_LOAD} || exit $?
 
     # imod command to compute min/max densities
-    alterheader -mmm "$mrc_input"
+    alterheader -mmm "$input"
 
     # reads density info from the header and extracts min/max values
-    local header_info=$(header "$mrc_input" 2>&1)
+    local header_info=$(header "$input" 2>&1)
     local min_density=$(grep -i 'Minimum Density' <<< "$header_info" | awk -F'\.\.\.' '{print $NF}' | awk '{print $1}')
     local max_density=$(grep -i 'Maximum Density' <<< "$header_info" | awk -F'\.\.\.' '{print $NF}' | awk '{print $1}')
 
@@ -634,32 +634,40 @@ generate_preview() {
     #could look something like this: 
     #clip filter -l $lowpass $input $tmpfile 1>&2 || exit $? ()
     #then the tmpfile would be used as the input for the rest of the preview generation process, and then deleted at the end of the function
-    tmpfile=$input
-    if [ "$lowpass" != "" ]; then
-      tmpfile=$(mktemp /tmp/pipeline-image.XXXXXX)
-      >&2 echo "executing: clip filter -l $lowpass $input $tmpfile" 1>&2
-      >&2 clip filter -l $lowpass $input $tmpfile || exit $?
-      if [ ! -e $tmpfile ]; then
-        >&2 echo "could not create image $tmpfile... exiting..."
-        exit 4
+    if [[ $FORCE -eq 1 || ! -e $output ]]; then
+      >&2 rm -f $output # just in case
+      >&2 echo "generating preview of $input to $output..."
+      module load ${IMOD_LOAD} || exit $?
+      tmpfile="$input"
+      if [ "$lowpass" != "" ]; then
+        tmpfile=$(mktemp /tmp/pipeline-image.XXXXXX)
+        >&2 echo "executing: clip filter -l $lowpass $input $tmpfile" 1>&2
+        >&2 clip filter -l $lowpass $input $tmpfile || exit $?
+        if [ ! -e $tmpfile ]; then
+          >&2 echo "could not create image $tmpfile... exiting..."
+          exit 4
+        fi
       fi
+
+      echo "executing: .mrc to .tif conversion" 1>&2
+      # imod command to convert .mrc to .tif 
+      mrc2tif -C "${min_density}","${max_density}" "$tmpfile" "$outdir/${filename}" || exit $?
+      echo "executing: .tif to .mp4 conversion" 1>&2
+      # command to convert to mp4 from tiff 
+      ffmpeg -pattern_type glob -framerate "${frame_rate}" -i "$outdir/${filename}"'*.tif' -pix_fmt yuv420p "$output" 1>&2 || exit $?
+      echo "cleaning up .tif files" 1>&2
+      # clean up tiff files
+      rm -f "$outdir/${filename}"*.tif
+
+      if [ "$lowpass" != "" ]; then
+        >&2 echo "rm -f $tmpfile"
+        rm -f $tmpfile || exit $?
+      fi
+    else
+      >&2 echo "preview file $output already exists!"
+      exit 1
     fi
-
-    echo "executing: .mrc to .tif conversion" 1>&2
-    # imod command to convert .mrc to .tif 
-    mrc2tif -C "${min_density}","${max_density}" "$tmpfile" "$outdir/${filename}" 
-    echo "executing: .tif to .mp4 conversion" 1>&2
-    # command to convert to mp4 from tiff 
-    ffmpeg -pattern_type glob -framerate "${frame_rate}" -i "$outdir/${filename}"'*.tif' -pix_fmt yuv420p "$output" 1>&2
-    echo "cleaning up .tif files" 1>&2
-
-    # clean up tiff files
-    rm -f "$outdir/${filename}"*.tif
   fi
-
-  if [ "$lowpass" != "" ]; then
-      >&2 echo "rm -f $tmpfile"
-      rm -f $tmpfile || exit $?
       
   # makes sure output is there
   if [ ! -e "$output" ]; then
