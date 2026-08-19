@@ -5,6 +5,8 @@ IMOD_VERSION="5.1.11"
 IMOD_LOAD="imod/${IMOD_VERSION}" #update version
 ARETOMO_VERSION="2.3.1"
 ARETOMO_LOAD="aretomo3/${ARETOMO_VERSION}"
+FFMPEG_VERSION="4.4.2"
+FFMPEG_LOAD="ffmpeg/${FFMPEG_VERSION}"
 
 # GENERATE
 # select mode/task and define terms
@@ -13,7 +15,7 @@ TASK=${TASK:-all} # task options: generate 3D reconstruction / generate preview
 FORCE=${FORCE:-0}
 NO_FORCE_GAINREF=${NO_FORCE_GAINREF:-0}
 NO_PREAMBLE=${NO_PREAMBLE:-0}
-TASK="rotate"
+TASK="preview"
 
 # SCOPE PARAMS (set by the microscopes)
 CS=${CS:-2.7}
@@ -140,6 +142,7 @@ if [ -z "$FMINT" ]; then
   echo "Need fmint [-i|--fmint FLOAT] to continue..."
   usage
   exit 1
+fi
 
 
 ensure_all_files() {
@@ -374,7 +377,7 @@ do_tomo() {
       exit 1
     else
       TOMOGRAM="$expected_tomogram"
-      local preview_path=$(generate_preview "$TOMOGRAM") || exit $? 
+      local preview_path=$(generate_preview "$TOMOGRAM" "$outdir") || exit $? 
       echo "    files generated in $preview_path:"
       dump_file_meta "${preview_path}" || exit $?
     fi
@@ -593,8 +596,9 @@ generate_preview() {
   local outdir="${2:-.}" # if no output dir is given, put in current dir
   local lowpass="${3:-}"
   local frame_rate="${4:-4}" # default frame rate is 4 if not specified as arg
-  local format=".mp4" # default format is mp4/only thing code supports
-
+  local format="mp4" # default format is mp4/only thing code supports
+  lowpass="0.7" # maybe default lowpass filter value can be 0.7 (default in imod)
+  
   # ensures mrc file is provided
   if [[ -z "$input" ]]; then
       >&2 echo "Error: No .mrc file provided as an argument."
@@ -620,7 +624,6 @@ generate_preview() {
     exit 1
   else
     >&2 echo "generating preview of $input to $output..."
-    module load ${IMOD_LOAD} || exit $?
 
     # imod command to compute min/max densities
     alterheader -mmm "$input"
@@ -635,9 +638,11 @@ generate_preview() {
     #clip filter -l $lowpass $input $tmpfile 1>&2 || exit $? ()
     #then the tmpfile would be used as the input for the rest of the preview generation process, and then deleted at the end of the function
     if [[ $FORCE -eq 1 || ! -e $output ]]; then
+      module load ${IMOD_LOAD} || exit $?
+      module load ${FFMPEG_LOAD} || exit $?
       >&2 rm -f $output # just in case
       >&2 echo "generating preview of $input to $output..."
-      module load ${IMOD_LOAD} || exit $?
+      
       tmpfile="$input"
       if [ "$lowpass" != "" ]; then
         tmpfile=$(mktemp /tmp/pipeline-image.XXXXXX)
