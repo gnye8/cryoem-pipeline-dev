@@ -15,7 +15,6 @@ TASK=${TASK:-all} # task options: generate 3D reconstruction / generate preview
 FORCE=${FORCE:-0}
 NO_FORCE_GAINREF=${NO_FORCE_GAINREF:-0}
 NO_PREAMBLE=${NO_PREAMBLE:-0}
-TASK="preview"
 
 # SCOPE PARAMS (set by the microscopes)
 CS=${CS:-2.7}
@@ -379,7 +378,7 @@ do_tomo() {
       TOMOGRAM="$expected_tomogram"
       local preview_path=$(generate_preview "$TOMOGRAM" "$outdir") || exit $? 
       echo "    files generated in $preview_path:"
-      dump_file_meta "${preview_path}" || exit $?
+      # dump_file_meta "${preview_path}" || exit $? #is it ok to move this? it has weird outputs sometimes
     fi
     local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
     echo "    duration: $duration"
@@ -595,9 +594,9 @@ generate_preview() {
   local input="$1" 
   local outdir="${2:-.}" # if no output dir is given, put in current dir
   local lowpass="${3:-}"
-  local frame_rate="${4:-4}" # default frame rate is 4 if not specified as arg
+  local frame_rate="${4:-10}" # default frame rate is 10 if not specified as arg
   local format="mp4" # default format is mp4/only thing code supports
-  lowpass="0.7" # maybe default lowpass filter value can be 0.7 (default in imod)
+  lowpass="3.5" # maybe default lowpass filter value can be 3.5 (default in imod)
   
   # ensures mrc file is provided
   if [[ -z "$input" ]]; then
@@ -647,7 +646,11 @@ generate_preview() {
       if [ "$lowpass" != "" ]; then
         tmpfile=$(mktemp /tmp/pipeline-image.XXXXXX)
         >&2 echo "executing: clip filter -l $lowpass $input $tmpfile" 1>&2
-        >&2 clip filter -l $lowpass $input $tmpfile || exit $?
+        >&2 clip filter -l $lowpass $input $tmpfile || {
+        rc=$?
+        echo "imod exited with code $rc" >&2
+        exit "$rc"
+        }
         if [ ! -e $tmpfile ]; then
           >&2 echo "could not create image $tmpfile... exiting..."
           exit 4
@@ -656,10 +659,19 @@ generate_preview() {
 
       echo "executing: .mrc to .tif conversion" 1>&2
       # imod command to convert .mrc to .tif 
-      mrc2tif -C "${min_density}","${max_density}" "$tmpfile" "$outdir/${filename}" || exit $?
+      mrc2tif -C "${min_density}","${max_density}" "$tmpfile" "$outdir/${filename}" || {
+      rc=$?
+      echo "mrc2tif exited with code $rc" >&2
+      exit "$rc"
+      }
       echo "executing: .tif to .mp4 conversion" 1>&2
       # command to convert to mp4 from tiff 
-      ffmpeg -pattern_type glob -framerate "${frame_rate}" -i "$outdir/${filename}"'*.tif' -pix_fmt yuv420p "$output" 1>&2 || exit $?
+      ffmpeg -pattern_type glob -framerate "${frame_rate}" -i "$outdir/${filename}"'*.tif' -pix_fmt yuv420p "$output" 1>&2 || {
+      rc=$?
+      echo "ffmpeg exited with code $rc" >&2
+      exit "$rc"
+      }
+      
       echo "cleaning up .tif files" 1>&2
       # clean up tiff files
       rm -f "$outdir/${filename}"*.tif
@@ -680,9 +692,9 @@ generate_preview() {
     exit 4
   fi
 
+dump_file_meta "${output}" || exit $? 
+echo "$output"
 
-  >&2 echo "done!"
-  echo "$output"
 }
 
 #generate/dump file meta (smth similar) *1370*
