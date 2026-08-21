@@ -2,7 +2,7 @@
 
 #load modules 
 IMOD_VERSION="5.1.11"
-IMOD_LOAD="imod/${IMOD_VERSION}" #update version
+IMOD_LOAD="imod/${IMOD_VERSION}"
 ARETOMO_VERSION="2.3.1"
 ARETOMO_LOAD="aretomo3/${ARETOMO_VERSION}"
 FFMPEG_VERSION="4.4.2"
@@ -154,6 +154,7 @@ ensure_all_files() {
   local expected_files
   local counted_files
   local dir
+  local movie_extension="${MOVIE_FORMAT#.}" #remove dot from extension if it exists
 
   mdoc_dir=$(dirname "$mdoc")
   path=$(awk '/SubFramePath = / { print $3; exit }' "$mdoc")
@@ -170,49 +171,48 @@ ensure_all_files() {
     fi
     dir=$(dirname "$path")
     if [[ "$dir" != "$mdoc_dir" ]]; then
-      >&2 echo "Error: SubFramePath file is not in the same directory as $mdoc"
+      >&2 echo "Error: SubFramePath is not in $mdoc"
       exit 1
     fi
     name=$(basename "$path")
   fi
 
-  name_no_ext="${name%.mrc}"
-  IFS='_' read -r prefix_part1 prefix_part2 prefix_part3 _rest <<< "$name_no_ext"
-  if [[ -z "$prefix_part1" || -z "$prefix_part2" || -z "$prefix_part3" ]]; then
-    >&2 echo "Error: could not parse prefix from $name"
+  name_no_ext="${name%.*}"
+  if [[ "$name_no_ext" =~ ^(.+)_([0-9]{3})(_.+)?$ ]]; then
+    prefix="${BASH_REMATCH[1]}"
+  else
+    >&2 echo "Error: could not parse prefix and frame index from $name"
     exit 1
   fi
-
-  prefix="${prefix_part1}_${prefix_part2}_${prefix_part3}"
 
   # scan matching files to determine the highest three-digit frame index and count files
   local max_index=0
   counted_files=0
   while IFS= read -r -d '' file; do
     bn=$(basename "$file")
-    # numeric index is the 4th underscore-separated field
-    num=$(awk -F'_' '{print $4}' <<< "$bn")
-    if [[ "$num" =~ ^[0-9]{3}$ ]]; then
+    remainder="${bn#"${prefix}"_}"
+    num="${remainder%%_*}"
+    if [[ "$num" =~ ^[0-9]{3}$ && ( "$remainder" == "$num" || "$remainder" == "$num"_* ) ]]; then #ensure num is in correct format 
       n=$((10#$num))
       counted_files=$((counted_files+1))
       if (( n > max_index )); then
         max_index=$n
       fi
     fi
-  done < <(find "$mdoc_dir" -maxdepth 1 -type f -name "${prefix}_[0-9][0-9][0-9]_*.mrc" -print0)
+  done < <(find "$mdoc_dir" -maxdepth 1 -type f -name "${prefix}_*.${movie_extension}" -print0)
 
   if (( counted_files == 0 )); then
-    >&2 echo "Error: no matching MRC files found for prefix ${prefix} in $mdoc_dir"
+    >&2 echo "Error: no matching ${movie_extension} movie files found for prefix ${prefix} in $mdoc_dir"
     exit 1
   fi
 
-  expected_files=$((max_index))
+  expected_files=$((max_index)) #treats the highest fm num as the expected num of files
 
   # for debug 
   >&2 echo "ensure_all_files: mdoc_dir=$mdoc_dir prefix=$prefix expected_files=$expected_files counted_files=$counted_files"
 
   if [[ "$counted_files" -lt "$expected_files" ]]; then
-    >&2 echo "Error: expected at least $expected_files files matching ${prefix}_[0-9][0-9][0-9]_*.mrc in $mdoc_dir, found $counted_files"
+    >&2 echo "Error: expected at least $expected_files files matching ${prefix}_[0-9][0-9][0-9]*.${movie_extension} in $mdoc_dir, found $counted_files"
     exit 1
   else 
     >&2 echo "All expected files are present in $mdoc_dir!"
@@ -445,14 +445,14 @@ process_gainref()
   
   local filename=$(basename -- "$input")
   local extension="${filename##*.}"
-  local output="$outdir${filename}" #take off slash lets see what happens
+  local output="$outdir/${filename}" 
 
   if [ ! -e "$input" ]; then
     >&2 echo "gainref file $input does not exist!"
     exit 4
   fi
 
-  if [[ "$extension" -eq "dm4" ]]; then
+  if [[ "$extension" == "dm4" ]]; then
   
     output="$outdir/${input%.$extension}.mrc"
     if [[ $FORCE -eq 1 || ! -e $output ]]; then
@@ -585,7 +585,7 @@ tomogram() {
     >&2 echo "Warning: expected tomogram .mrc not found in $outdir, but found $all_mrc"
     return 0
   else
-    >&2 echo "Error: no tomogram .mrc not found in $outdir"
+    >&2 echo "Error: no tomogram .mrc found in $outdir"
     return 1
   fi
 }
@@ -594,7 +594,7 @@ generate_preview() {
   local input="$1" 
   local outdir="${2:-.}" # if no output dir is given, put in current dir
   local lowpass="${3:-}"
-  local frame_rate="${4:-10}" # default frame rate is 10 if not specified as arg
+  local frame_rate="${4:-4}" # default frame rate is 4 if not specified as arg
   local format="mp4" # default format is mp4/only thing code supports
   lowpass="3.5" # maybe default lowpass filter value can be 3.5 (default in imod)
   
@@ -646,7 +646,7 @@ generate_preview() {
       if [ "$lowpass" != "" ]; then
         tmpfile=$(mktemp /tmp/pipeline-image.XXXXXX)
         >&2 echo "executing: clip filter -l $lowpass $input $tmpfile" 1>&2
-        >&2 clip filter -l $lowpass $input $tmpfile || {
+        clip filter -l $lowpass $input $tmpfile 1>&2 || {
         rc=$?
         echo "imod exited with code $rc" >&2
         exit "$rc"
@@ -658,14 +658,14 @@ generate_preview() {
       fi
 
       echo "executing: .mrc to .tif conversion" 1>&2
-      # imod command to convert .mrc to .tif 
+      # imod command 
       mrc2tif -C "${min_density}","${max_density}" "$tmpfile" "$outdir/${filename}" || {
       rc=$?
       echo "mrc2tif exited with code $rc" >&2
       exit "$rc"
       }
       echo "executing: .tif to .mp4 conversion" 1>&2
-      # command to convert to mp4 from tiff 
+      # ffmpeg module command
       ffmpeg -pattern_type glob -framerate "${frame_rate}" -i "$outdir/${filename}"'*.tif' -pix_fmt yuv420p "$output" 1>&2 || {
       rc=$?
       echo "ffmpeg exited with code $rc" >&2
@@ -673,7 +673,6 @@ generate_preview() {
       }
       
       echo "cleaning up .tif files" 1>&2
-      # clean up tiff files
       rm -f "$outdir/${filename}"*.tif
 
       if [ "$lowpass" != "" ]; then
