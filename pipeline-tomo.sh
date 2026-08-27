@@ -107,7 +107,9 @@ main() {
   done
 
   GAINREF_FILE="${GAINREF_FILE:-$GAINREF}"
-  OUTDIR="${OUTDIR:-reconstructed/aretomo3/$ARETOMO_VERSION}"
+  OUTDIR="${OUTDIR:-aretomo3_output}" 
+  RECONSTRUCTED_DIR="${OUTDIR}/reconstructed"
+  PREVIEW_DIR="${OUTDIR}/preview"
 
   MDOCS=("${@:$OPTIND}")
   if [[ ${#MDOCS[@]} -eq 0 && -n "$INPUT" ]]; then
@@ -345,8 +347,9 @@ do_tomo() {
   fi
 
   echo "tomographic_analysis:"
-  local outdir="${OUTDIR}"
-  local expected_tomogram="${outdir}/$(basename "${MDOC%.*}").mrc"
+  local reconstructed_dir="$RECONSTRUCTED_DIR"
+  local preview_dir="$PREVIEW_DIR"
+  local expected_tomogram="${reconstructed_dir}/$(basename "${MDOC%.*}").mrc"
 
   if [[ "$TASK" != "reconstruct" && "$TASK" != "preview" && "$TASK" != "all" ]]; then
     >&2 echo "Error: Invalid task specified: $TASK . Valid options are: reconstruct, preview, all."
@@ -362,8 +365,8 @@ do_tomo() {
       >&2 echo "Skipping Reconstruction...tomogram already exists: $expected_tomogram"
       TOMOGRAM="$expected_tomogram"
     else
-      tomo_reconstruction "$MDOC" "$GAINREF_FILE" "$outdir" || exit $?
-      TOMOGRAM=$(tomogram "$MDOC" "$outdir") || exit $?
+      tomo_reconstruction "$MDOC" "$GAINREF_FILE" "$reconstructed_dir" || exit $?
+      TOMOGRAM=$(tomogram "$MDOC" "$reconstructed_dir") || exit $?
     fi
     local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
     echo "    duration: $duration"
@@ -378,7 +381,7 @@ do_tomo() {
       exit 1
     else
       TOMOGRAM="$expected_tomogram"
-      local preview_path=$(generate_preview "$TOMOGRAM" "$outdir") || exit $? 
+      local preview_path=$(generate_preview "$TOMOGRAM" "$preview_dir") || exit $? 
       echo "    files generated in $preview_path:"
       # dump_file_meta "${preview_path}" || exit $? #is it ok to move this? it has weird outputs sometimes
     fi
@@ -625,6 +628,8 @@ generate_preview() {
     exit 1
   else
     >&2 echo "generating preview of $input to $output..."
+    module load ${IMOD_LOAD} || exit $?
+    module load ${FFMPEG_LOAD} || exit $?
 
     # imod command to compute min/max densities
     alterheader -mmm "$input"
@@ -634,14 +639,16 @@ generate_preview() {
     local min_density=$(grep -i 'Minimum Density' <<< "$header_info" | awk -F'\.\.\.' '{print $NF}' | awk '{print $1}')
     local max_density=$(grep -i 'Maximum Density' <<< "$header_info" | awk -F'\.\.\.' '{print $NF}' | awk '{print $1}')
 
+<<<<<<< HEAD
     #add in option to lowpass filter the tomogram before generating the preview?
     #could look something like this: 
     #clip filter -l $lowpass $input $tmpfile 1>&2 || exit $? ()
     #then the tmpfile would be used as the in;'[] ,']
     # then use the filtered file for preview generation and delete it at the end
+=======
+
+>>>>>>> main
     if [[ $FORCE -eq 1 || ! -e $output ]]; then
-      module load ${IMOD_LOAD} || exit $?
-      module load ${FFMPEG_LOAD} || exit $?
       >&2 rm -f $output # just in case
       >&2 echo "generating preview of $input to $output..."
       
