@@ -41,7 +41,7 @@ WBP=${WBP:-1}
 #help function: explains required and optional arguments 
 usage() {
   cat <<__EOF__
-Usage: $0 MDOC_FILE
+Usage: $0 MDOC_FILE [MDOC_FILE ...]
 
 Mandatory Arguments:
   [-a|--apix FLOAT]            use specified pixel size
@@ -110,7 +110,9 @@ main() {
   OUTDIR="${OUTDIR:-reconstructed/aretomo3/$ARETOMO_VERSION}"
 
   MDOCS=("${@:$OPTIND}")
-  MDOCS="${MDOCS:-$INPUT}"
+  if [[ ${#MDOCS[@]} -eq 0 && -n "$INPUT" ]]; then
+    MDOCS=("$INPUT")
+  fi
   if [ ${#MDOCS[@]} -lt 1 ]; then
     echo "Need input mdoc MDOC_FILE to continue..."
     usage
@@ -221,11 +223,11 @@ ensure_all_files() {
 
 #TO DO: add function to kick things off based on the mode
 #and the task specified by the user, and call the appropriate functions 
-#assume the input to this script is a single mdoc file
+#process each input mdoc file
 #the function will ask if the mode is spa, then call do_spa function 
 #if the mode is tomo, then call do_tomo function 
 #else, print an error message and exit 
-for MDOC in ${MDOCS}; do
+for MDOC in "${MDOCS[@]}"; do
 
   # strip ./
   if [[ "$MDOC" = ./* ]]; then MDOC="${MDOC:2}"; fi
@@ -636,8 +638,7 @@ generate_preview() {
     #could look something like this: 
     #clip filter -l $lowpass $input $tmpfile 1>&2 || exit $? ()
     #then the tmpfile would be used as the in;'[] ,']
-    \[]\[]'
-    \`put for the rest of the preview generation process, and then deleted at the end of the function
+    # then use the filtered file for preview generation and delete it at the end
     if [[ $FORCE -eq 1 || ! -e $output ]]; then
       module load ${IMOD_LOAD} || exit $?
       module load ${FFMPEG_LOAD} || exit $?
