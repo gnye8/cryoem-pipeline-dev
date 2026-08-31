@@ -15,6 +15,7 @@ TASK=${TASK:-all} # task options: generate 3D reconstruction / generate preview
 FORCE=${FORCE:-0}
 NO_FORCE_GAINREF=${NO_FORCE_GAINREF:-0}
 NO_PREAMBLE=${NO_PREAMBLE:-0}
+MOVIE_FORMAT=${MOVIE_FORMAT:-tif} #default movie format is tif, can be changed by user input
 
 # SCOPE PARAMS (set by the microscopes)
 CS=${CS:-2.7}
@@ -31,6 +32,7 @@ MCPATCH=${MCPATCH:-4 4}
 FMDOSE=${FMDOSE}
 FMINT=${FMINT}
 SPLITSUM=${SPLITSUM:-1}
+DARKTOL=${DARKTOL:-0.75}
 VOLZ=${VOLZ:--1}
 ALIGNZ=${ALIGNZ:-0}
 ATBIN=${ATBIN:-4}
@@ -47,6 +49,7 @@ Mandatory Arguments:
   [-a|--apix FLOAT]            use specified pixel size
   [-d|--fmdose FLOAT]          use specified fmdose in calculations
   [-i|--fmint FLOAT]          use specified fmint in calculations
+  [-o|--movie-format STR]        user must input movie files format type
 
 Optional Arguments:
   [-g|--gainref GAINREF_FILE]  use specificed gain reference file
@@ -76,6 +79,7 @@ main() {
       "--apix")    set -- "$@" "-a";;
       "--fmdose")  set -- "$@" "-d";;
       "--fmint")   set -- "$@" "-i";;
+      "--movie-format") set -- "$@" "-o";;
       "--kev")     set -- "$@" "-k";;
       "--superres") set -- "$@" "-s";;
       "--phase-plate") set -- "$@" "-p";;
@@ -96,6 +100,7 @@ main() {
     d) FMDOSE="$OPTARG";;
     k) KV="$OPTARG";;
     i) FMINT="$OPTARG";;
+    o) MOVIE_FORMAT="$OPTARG";;
     s) SUPERRES=1;;
     p) PHASE_PLATE=1;;
     F) FORCE=1;;
@@ -144,6 +149,15 @@ if [ -z "$FMDOSE" ]; then # doesn't allow for fmdose to be undefined, exits if i
 if [ -z "$FMINT" ]; then
   echo "Need fmint [-i|--fmint FLOAT] to continue..."
   usage
+  exit 1
+fi
+
+if [ -z "$MOVIE_FORMAT" ]; then # doesn't allow for movie_format to be undefined
+  echo "Need movie format [-o|--movie-format] to continue..."
+  usage
+  exit 1
+elif ! [[ "$MOVIE_FORMAT" =~ ^\.?(tiff|mrc|eer)$ ]]; then
+  echo "Invalid movie format specified: $MOVIE_FORMAT. Valid options are: tif, .tif, mrc, .mrc, eer, .eer."
   exit 1
 fi
 
@@ -543,6 +557,7 @@ tomo_reconstruction() {
       -FmDose ${FMDOSE} \
       -FmInt ${FMINT} \
       -SplitSum ${SPLITSUM} \
+      -DarkTol ${DARKTOL} \
       -VolZ ${VOLZ} \
       -AlignZ ${ALIGNZ} \
       -AtBin ${ATBIN} \
@@ -598,10 +613,9 @@ tomogram() {
 generate_preview() {
   local input="$1" 
   local outdir="${2:-.}" # if no output dir is given, put in current dir
-  local lowpass="${3:-}"
+  local lowpass="${3:-50}" #will be unchangeable in script
   local frame_rate="${4:-4}" # default frame rate is 4 if not specified as arg
   local format="mp4" # default format is mp4/only thing code supports
-  lowpass="3.5" # maybe default lowpass filter value can be 3.5 (default in imod)
   
   # ensures mrc file is provided
   if [[ -z "$input" ]]; then
@@ -639,15 +653,6 @@ generate_preview() {
     local min_density=$(grep -i 'Minimum Density' <<< "$header_info" | awk -F'\.\.\.' '{print $NF}' | awk '{print $1}')
     local max_density=$(grep -i 'Maximum Density' <<< "$header_info" | awk -F'\.\.\.' '{print $NF}' | awk '{print $1}')
 
-<<<<<<< HEAD
-    #add in option to lowpass filter the tomogram before generating the preview?
-    #could look something like this: 
-    #clip filter -l $lowpass $input $tmpfile 1>&2 || exit $? ()
-    #then the tmpfile would be used as the in;'[] ,']
-    # then use the filtered file for preview generation and delete it at the end
-=======
-
->>>>>>> main
     if [[ $FORCE -eq 1 || ! -e $output ]]; then
       >&2 rm -f $output # just in case
       >&2 echo "generating preview of $input to $output..."
