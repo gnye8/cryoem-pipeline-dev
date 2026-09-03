@@ -39,6 +39,8 @@ ATBIN=${ATBIN:-4}
 FLIPGAIN=${FLIPGAIN:-1}
 ATPATCH=${ATPATCH:-4 4}
 WBP=${WBP:-1}
+OUTIMOD=${OUTMOD:-1}
+
 
 #help function: explains required and optional arguments 
 usage() {
@@ -564,6 +566,7 @@ tomo_reconstruction() {
       -FlipGain ${FLIPGAIN} \
       -AtPatch ${ATPATCH} \
       -Wbp ${WBP} \
+      -OutImod ${OUTIMOD} \
       -kV ${KV} \
       -Cs ${CS}
   "
@@ -660,8 +663,8 @@ generate_preview() {
       tmpfile="$input"
       if [ "$lowpass" != "" ]; then
         tmpfile=$(mktemp /tmp/pipeline-image.XXXXXX)
-        >&2 echo "executing: clip filter -l $lowpass $input $tmpfile" 1>&2
-        clip filter -l $lowpass $input $tmpfile 1>&2 || {
+        >&2 echo "executing: lowpass filtering" 1>&2
+        mtffilter -low ${APIX}/40,0.05 $input $tmpfile || {
         rc=$?
         echo "imod exited with code $rc" >&2
         exit "$rc"
