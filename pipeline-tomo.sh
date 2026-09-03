@@ -39,6 +39,8 @@ ATBIN=${ATBIN:-4}
 FLIPGAIN=${FLIPGAIN:-1}
 ATPATCH=${ATPATCH:-4 4}
 WBP=${WBP:-1}
+OUTIMOD=${OUTMOD:-1}
+
 
 #help function: explains required and optional arguments 
 usage() {
@@ -564,6 +566,7 @@ tomo_reconstruction() {
       -FlipGain ${FLIPGAIN} \
       -AtPatch ${ATPATCH} \
       -Wbp ${WBP} \
+      -OutImod ${OUTIMOD} \
       -kV ${KV} \
       -Cs ${CS}
   "
@@ -578,7 +581,7 @@ tomo_reconstruction() {
     return $rc
   fi
 
-  local tomogram_mrc="$outdir/$(basename ${input%.*}).mrc" #mdoc basename becomes prefix for .mrc 
+  local tomogram_mrc="$outdir/$(basename ${input%.*})_Vol.mrc" #mdoc basename becomes prefix for .mrc 
 
   if [[ ! -f "$tomogram_mrc" ]]; then
     >&2 echo "Warning: expected output $tomogram_mrc was not created."
@@ -597,7 +600,7 @@ tomogram() {
     prefix="$filename"
   fi
 
-  local tomogram_mrc="$outdir/$(basename ${input%.*}).mrc"
+  local tomogram_mrc="$outdir/$(basename ${input%.*})_Vol.mrc"
   if [[ -f "$tomogram_mrc" ]]; then
     echo "$tomogram_mrc"
     return 0
@@ -660,8 +663,8 @@ generate_preview() {
       tmpfile="$input"
       if [ "$lowpass" != "" ]; then
         tmpfile=$(mktemp /tmp/pipeline-image.XXXXXX)
-        >&2 echo "executing: clip filter -l $lowpass $input $tmpfile" 1>&2
-        clip filter -l $lowpass $input $tmpfile 1>&2 || {
+        >&2 echo "executing: lowpass filtering" 1>&2
+        mtffilter -low ${APIX}/40,0.05 $input $tmpfile || {
         rc=$?
         echo "imod exited with code $rc" >&2
         exit "$rc"
