@@ -581,7 +581,7 @@ tomo_reconstruction() {
     return $rc
   fi
 
-  local tomogram_mrc="$outdir/$(basename ${input%.*}).mrc" #mdoc basename becomes prefix for .mrc 
+  local tomogram_mrc="$outdir/$(basename ${input%.*})_Vol.mrc" #mdoc basename becomes prefix for .mrc 
 
   if [[ ! -f "$tomogram_mrc" ]]; then
     >&2 echo "Warning: expected output $tomogram_mrc was not created."
@@ -600,7 +600,7 @@ tomogram() {
     prefix="$filename"
   fi
 
-  local tomogram_mrc="$outdir/$(basename ${input%.*}).mrc"
+  local tomogram_mrc="$outdir/$(basename ${input%.*})_Vol.mrc"
   if [[ -f "$tomogram_mrc" ]]; then
     echo "$tomogram_mrc"
     return 0
