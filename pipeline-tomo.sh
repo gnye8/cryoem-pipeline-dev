@@ -93,7 +93,7 @@ main() {
 
 #assigning command line flags to variables
 #Grace: changed defect file variable to e so that two variables weren't using d
-  while getopts "Fhspm:t:l:g:b:a:d:k:e:c:i:" opt; do
+  while getopts "Fhspm:t:l:g:b:a:d:k:e:c:i:o" opt; do
     case "$opt" in
     g) GAINREF_FILE="$OPTARG";;
     e) DEFECT_FILE="$OPTARG";;
