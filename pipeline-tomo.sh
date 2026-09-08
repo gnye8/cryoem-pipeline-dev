@@ -365,7 +365,7 @@ do_tomo() {
   echo "tomographic_analysis:"
   local reconstructed_dir="$RECONSTRUCTED_DIR"
   local preview_dir="$PREVIEW_DIR"
-  local expected_tomogram="${reconstructed_dir}/$(basename "${MDOC%.*}").mrc"
+  local expected_tomogram="${reconstructed_dir}/$(basename "${MDOC%.*}")_Vol.mrc"
 
   if [[ "$TASK" != "reconstruct" && "$TASK" != "preview" && "$TASK" != "all" ]]; then
     >&2 echo "Error: Invalid task specified: $TASK . Valid options are: reconstruct, preview, all."
@@ -459,7 +459,7 @@ process_gainref()
   # read in a file and spit out the appropriate gainref to actually use via echo as path
   local input=$1
   local outdir=${2:-.}
-  if [[ ${input:0:1} == "/" ]]; then outdir=""; else mkdir -p $outdir; fi
+  if [[ "$input" == /* ]]; then outdir="$(dirname -- "$input")"; else mkdir -p "$outdir"; fi
   if [[ ${input:0:2} == './' ]]; then input=${input#./}; fi
 
   >&2 echo
@@ -476,7 +476,7 @@ process_gainref()
   if [[ "$extension" == "dm4" ]]; then
   
     output="$outdir/${input%.$extension}.mrc"
-    if [[ $FORCE -eq 1 || ! -e $output ]]; then
+    if [[ $FORCE == 1 || ! -e $output ]]; then
       >&2 echo "converting gainref file $input to $output..."
       module load ${IMOD_LOAD} || exit $?
       # assume $input is always superres, so scale down if not
@@ -495,7 +495,7 @@ process_gainref()
     output="$outdir/${input%.$extension}.mrc"
     if [[ "$output" = ././* ]]; then output="${output:4}"; fi
     if [[ "$output" = ./* ]]; then output="${output:2}"; fi
-    if [[ $FORCE -eq 1 || ! -e $output ]]; then
+    if [[ $FORCE == 1 || ! -e $output ]]; then
       >&2 echo "converting gainref file $input to $output..."
       module load ${IMOD_LOAD} || exit $?
       tif2mrc "$input" "$output" 1>&2 || exit $?
@@ -504,7 +504,7 @@ process_gainref()
     fi
   
   # TODO: this needs testing
-  elif [[ "$extension" -eq 'mrc' && ! -e $output ]]; then
+  elif [[ "$extension" == 'mrc' && ! -e $output ]]; then
     
     >&2 echo "Error: output gainref file $output does not exist"
     
