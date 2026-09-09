@@ -41,7 +41,6 @@ ATPATCH=${ATPATCH:-4 4}
 WBP=${WBP:-1}
 OUTIMOD=${OUTMOD:-1}
 
-
 #help function: explains required and optional arguments 
 usage() {
   cat <<__EOF__
@@ -120,7 +119,7 @@ main() {
 
   MDOCS=("${@:$OPTIND}")
   if [[ ${#MDOCS[@]} -eq 0 && -n "$INPUT" ]]; then
-    MDOCS=("$INPUT")
+    mapfile -t MDOCS < <(compgen -G "$INPUT")
   fi
   if [ ${#MDOCS[@]} -lt 1 ]; then
     echo "Need input mdoc MDOC_FILE to continue..."
