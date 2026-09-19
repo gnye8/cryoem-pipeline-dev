@@ -39,7 +39,18 @@ ATBIN=${ATBIN:-4}
 FLIPGAIN=${FLIPGAIN:-1}
 ATPATCH=${ATPATCH:-4 4}
 WBP=${WBP:-1}
-OUTIMOD=${OUTMOD:-1}
+OUTIMOD=${OUTIMOD:-1}
+MCBIN=${MCBIN:-1}
+MCITER=${MCITER:-40}
+MCTOL=${MCTOL:-0.001}
+DARKTOL=${DARKTOL:-0.75}
+TILT_KEEP_RATIO=${TILT_KEEP_RATIO:-0.9}
+TILTCOR=${TILTCOR:-1}
+CORR_CTF=${CORR_CTF:-1}
+LOWPASS=${LOWPASS:-40}
+CTF_ARG=${CTF_ARG:-"-CorrCTF ${CORR_CTF} ${LOWPASS}"}
+OUTXF=${OUTXF:-0}
+FLIPVOL=${FLIPVOL:-1}
 
 #help function: explains required and optional arguments 
 usage() {
@@ -396,7 +407,7 @@ do_tomo() {
       exit 1
     else
       TOMOGRAM="$expected_tomogram"
-      local preview_path=$(generate_preview "$TOMOGRAM" "$preview_dir") || exit $? 
+      local preview_path=$(generate_preview "$TOMOGRAM" "$preview_dir" "$LOWPASS") || exit $? 
       echo "    files generated in $preview_path:"
       # dump_file_meta "${preview_path}" || exit $? #is it ok to move this? it has weird outputs sometimes
     fi
@@ -554,6 +565,10 @@ tomo_reconstruction() {
       -OutDir ${outdir} \
       -Gpu ${GPU} \
       -PixSize $(echo $APIX | awk -v superres=$SUPERRES '{ if( superres=="1" ){ print $1/2 }else{ print $1 } }') \
+      -TiltKeepRatio ${TILT_KEEP_RATIO} \
+      -McBin ${MCBIN} \
+      -McIter ${MCITER} \
+      -McTol ${MCTOL} \
       -McPatch ${MCPATCH} \
       -FmDose ${FMDOSE} \
       -FmInt ${FMINT} \
@@ -565,6 +580,10 @@ tomo_reconstruction() {
       -FlipGain ${FLIPGAIN} \
       -AtPatch ${ATPATCH} \
       -Wbp ${WBP} \
+      -OutXF ${OUTXF} \
+      -TiltCor ${TILTCOR} \
+      ${CTF_ARG} \
+      -FlipVol ${FLIPVOL} \
       -OutImod ${OUTIMOD} \
       -kV ${KV} \
       -Cs ${CS}
@@ -663,7 +682,7 @@ generate_preview() {
       if [ "$lowpass" != "" ]; then
         tmpfile=$(mktemp /tmp/pipeline-image.XXXXXX)
         >&2 echo "executing: lowpass filtering" 1>&2
-        mtffilter -low ${APIX}/40,0.05 $input $tmpfile || {
+        mtffilter -low ${APIX}/${lowpass},0.05 "$input" "$tmpfile" || {
         rc=$?
         echo "imod exited with code $rc" >&2
         exit "$rc"
