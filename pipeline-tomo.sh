@@ -50,7 +50,7 @@ CORR_CTF=${CORR_CTF:-1}
 LOWPASS=${LOWPASS:-40}
 CTF_ARG=${CTF_ARG:-"-CorrCTF ${CORR_CTF} ${LOWPASS}"}
 OUTXF=${OUTXF:-0}
-FLIPVOL=${FLIPVOL:-1}
+FLIPVOL=${FLIPVOL}
 
 #help function: explains required and optional arguments 
 usage() {
@@ -62,6 +62,7 @@ Mandatory Arguments:
   [-d|--fmdose FLOAT]          use specified fmdose in calculations
   [-i|--fmint FLOAT]          use specified fmint in calculations
   [-o|--movie-format STR]        user must input movie files format type
+  [-v|--flipvol]                  flip the reconstructed volume along the z-axis (useful for some microscopes)
 
 Optional Arguments:
   [-g|--gainref GAINREF_FILE]  use specificed gain reference file
@@ -103,7 +104,7 @@ main() {
 
 #assigning command line flags to variables
 #Grace: changed defect file variable to e so that two variables weren't using d
-  while getopts "Fhspm:t:l:g:b:a:d:k:e:c:i:o" opt; do
+  while getopts "Fhspm:t:l:g:b:a:d:k:e:c:i:o:v" opt; do
     case "$opt" in
     g) GAINREF_FILE="$OPTARG";;
     e) DEFECT_FILE="$OPTARG";;
@@ -170,6 +171,12 @@ if [ -z "$MOVIE_FORMAT" ]; then # doesn't allow for movie_format to be undefined
   exit 1
 elif ! [[ "$MOVIE_FORMAT" =~ ^\.?(tiff|mrc|eer)$ ]]; then
   echo "Invalid movie format specified: $MOVIE_FORMAT. Valid options are: tif, .tif, mrc, .mrc, eer, .eer."
+  exit 1
+fi
+
+if [ -z "$FLIPVOL" ]; then
+  echo "Need flipvol [-v|--flipvol] to continue..."
+  usage
   exit 1
 fi
 
@@ -536,7 +543,7 @@ tomo_reconstruction() {
   local input="${1:-$INPUT}"
   local gainref="${2:-$GAINREF}" 
   local outdir="${3:-OUTDIR}"
-  local prefix=${input%.*} # strip extension of mdoc
+  local prefix="${input%.*}." # strip extension of mdoc
 
   # if [[ "$prefix" == "$filename" ]]; then
   #  prefix="$filename"
@@ -560,7 +567,7 @@ tomo_reconstruction() {
   AreTomo3 \
       -Cmd ${CMD} \
       -InPrefix ${prefix} \
-      -InSuffix .mdoc \
+      -InSuffix mdoc \
       -Gain ${gainref} \
       -OutDir ${outdir} \
       -Gpu ${GPU} \
@@ -634,9 +641,9 @@ tomogram() {
 generate_preview() {
   local input="$1" 
   local outdir="${2:-.}" # if no output dir is given, put in current dir
-  local lowpass="${3:-50}" #will be unchangeable in script
+  local lowpass="${3}" #will be unchangeable in script
   local frame_rate="${4:-4}" # default frame rate is 4 if not specified as arg
-  local format="mp4" # default format is mp4/only thing code supports
+  local format="mp4" # default output format is mp4/only thing code supports
   
   # ensures mrc file is provided
   if [[ -z "$input" ]]; then
@@ -682,11 +689,105 @@ generate_preview() {
       if [ "$lowpass" != "" ]; then
         tmpfile=$(mktemp /tmp/pipeline-image.XXXXXX)
         >&2 echo "executing: lowpass filtering" 1>&2
-        mtffilter -low ${APIX}/${lowpass},0.05 "$input" "$tmpfile" || {
-        rc=$?
-        echo "imod exited with code $rc" >&2
-        exit "$rc"
-        }
+        #mtffilter -low ${APIX}/${lowpass},0.05 "$input" "$tmpfile" || {
+        #rc=$?
+        #echo "imod exited with code $rc" >&2
+        #exit "$rc"
+        python3 - "$input" "$tmpfile" "$lowpass" <<'PY'
+
+import numpy as np
+from scipy.ndimage import gaussian_filter
+#ian's 
+
+def lowpass_sigma_px(resolution_A, pixel_size_A):
+    """Gaussian σ (pixels) that corresponds to a resolution cutoff in Å."""
+    return resolution_A / (2 * np.pi * pixel_size_A)
+
+
+def lowpass_2d(img, resolution=40.0, pixel_size=6.8):
+    """Gaussian low-pass of a 2D slice (returns float32).
+
+    Args:
+        img:        2D array (any dtype).
+        resolution: cutoff resolution in Å — features smaller than this are
+                    suppressed. Lower = less smoothing.
+        pixel_size: Å per pixel of `img`.
+    """
+    f = img.astype(np.float32)
+    # Gaussian low-pass in Fourier space equivalent:
+    # σ_px = resolution / (2π * pixel_size)
+    sigma_px = lowpass_sigma_px(resolution, pixel_size)
+    return gaussian_filter(f, sigma_px).astype(np.float32)
+
+
+def lowpass_volume_2d(volume, resolution=40.0, pixel_size=6.8):
+    """Apply lowpass_2d slice-by-slice over a (Z, Y, X) volume (float32)."""
+    out = np.empty(volume.shape, dtype=np.float32)
+    for z in range(volume.shape[0]):
+        out[z] = lowpass_2d(volume[z], resolution, pixel_size)
+    return out
+
+
+def lowpass_3d(vol, cutoff_fraction, pixel_size=1.0):
+    """Apply a 3D low-pass filter.
+
+    Parameters
+    ----------
+    vol : (N, N, N) array
+    cutoff_fraction : float — cutoff as fraction of Nyquist (0-0.5)
+    pixel_size : float — Å/pixel
+
+    Returns
+    -------
+    filtered : (N, N, N) array
+    """
+    N = vol.shape[0]
+
+    freqs = np.fft.fftfreq(N)
+    fz, fy, fx = np.meshgrid(freqs, freqs, freqs, indexing='ij')
+    freq_r = np.sqrt(fx**2 + fy**2 + fz**2)
+
+    # Butterworth low-pass (order 4)
+    order = 4
+    lp = 1.0 / (1.0 + (freq_r / max(cutoff_fraction, 1e-6))**(2 * order))
+
+    V = np.fft.fftn(vol)
+    V *= lp
+    return np.fft.ifftn(V).real.astype(np.float32)
+
+
+if __name__ == "__main__":
+    # CLI: python lowpass_filter.py in.mrc out.mrc [resolution_A] [pixel_size_A]
+    # Applies the 2D Gaussian low-pass to every slice. If pixel_size is omitted
+    # it is read from the MRC header (falls back to 6.8 Å/px).
+    import sys
+    import mrcfile
+
+    if len(sys.argv) < 3:
+        print("Usage: python - in.mrc out.mrc [resolution_A] [pixel_size_A]", file=sys.stderr)
+        sys.exit(1)
+
+    in_path = sys.argv[1]
+    out_path = sys.argv[2]
+    res = float(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3] not in ("", "null") else 40.0
+
+    with mrcfile.open(in_path, permissive=True) as m:
+        vol = np.asarray(m.data, dtype=np.float32)
+        vs = m.voxel_size
+        hdr_px = float(getattr(vs, 'x', 0) or 0)
+
+    px = float(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4] not in ("", "null") else (hdr_px if hdr_px > 1.01 else 6.8)
+    if vol.ndim == 2:
+        vol = vol[None]
+
+    out = lowpass_volume_2d(vol, res, px)
+    with mrcfile.new(out_path, overwrite=True) as mo:
+        mo.set_data(out)
+        mo.voxel_size = vs
+
+    print(f"Wrote {out_path}  shape={out.shape}  cutoff={res} Å  px={px} Å/px  sigma={lowpass_sigma_px(res, px):.2f} px")
+
+PY
         if [ ! -e $tmpfile ]; then
           >&2 echo "could not create image $tmpfile... exiting..."
           exit 4
