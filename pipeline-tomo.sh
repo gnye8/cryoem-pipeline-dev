@@ -7,6 +7,8 @@ ARETOMO_VERSION="2.3.1"
 ARETOMO_LOAD="aretomo3/${ARETOMO_VERSION}"
 FFMPEG_VERSION="4.4.2"
 FFMPEG_LOAD="ffmpeg/${FFMPEG_VERSION}"
+PYLIBS_VERSION="1.0"
+PYLIBS_LOAD="pylibs/${PYLIBS_VERSION}"
 
 # GENERATE
 # select mode/task and define terms
@@ -65,6 +67,7 @@ Mandatory Arguments:
   [-v|--flipvol]                  flip the reconstructed volume along the z-axis (useful for some microscopes)
 
 Optional Arguments:
+  [-l|--lowpass FLOAT]           low-pass resolution cutoff in Angstroms (default: 40)
   [-g|--gainref GAINREF_FILE]  use specificed gain reference file
   [-e|--defect DEFECT_FILE]    use specificed defect reference file
   [-b|--basename STR]          output files names with specified STR as prefix
@@ -93,6 +96,7 @@ main() {
       "--fmdose")  set -- "$@" "-d";;
       "--fmint")   set -- "$@" "-i";;
       "--movie-format") set -- "$@" "-o";;
+      "--lowpass") set -- "$@" "-l";;
       "--kev")     set -- "$@" "-k";;
       "--superres") set -- "$@" "-s";;
       "--phase-plate") set -- "$@" "-p";;
@@ -114,6 +118,7 @@ main() {
     k) KV="$OPTARG";;
     i) FMINT="$OPTARG";;
     o) MOVIE_FORMAT="$OPTARG";;
+    l) LOWPASS="$OPTARG";;
     s) SUPERRES=1;;
     p) PHASE_PLATE=1;;
     F) FORCE=1;;
@@ -638,66 +643,16 @@ tomogram() {
   fi
 }
 
-generate_preview() {
-  local input="$1" 
-  local outdir="${2:-.}" # if no output dir is given, put in current dir
-  local lowpass="${3}" #will be unchangeable in script
-  local frame_rate="${4:-4}" # default frame rate is 4 if not specified as arg
-  local format="mp4" # default output format is mp4/only thing code supports
-  
-  # ensures mrc file is provided
-  if [[ -z "$input" ]]; then
-      >&2 echo "Error: No .mrc file provided as an argument."
-      >&2 echo "Usage: $0 <mrc_file> [output_dir] [frame_rate]"
-      exit 1
-  fi
-  
-  # ensures the input file exists
-  if [ ! -e "$input" ]; then
-    >&2 echo "input file $input not found!"
-    exit  
-  fi
-
-  #create output directory
-  local filename=$(basename -- "$input")
-  local extension="${filename##*.}"
-  local output="$outdir/${filename%.${extension}}.${format}" # output file name is same as input but with .mp4 extension
-  mkdir -p "$outdir" #if new output direcory is initialized, create it
-
-  # checks if output files already exist, if so, exits to avoid overwriting (necessary? in old code)
-  if [ -e "$output" ]; then
-    >&2 echo "preview file $output already exists!"
-    exit 1
-  else
-    >&2 echo "generating preview of $input to $output..."
-    module load ${IMOD_LOAD} || exit $?
-    module load ${FFMPEG_LOAD} || exit $?
-
-    # imod command to compute min/max densities
-    alterheader -mmm "$input"
-
-    # reads density info from the header and extracts min/max values
-    local header_info=$(header "$input" 2>&1)
-    local min_density=$(grep -i 'Minimum Density' <<< "$header_info" | awk -F'\.\.\.' '{print $NF}' | awk '{print $1}')
-    local max_density=$(grep -i 'Maximum Density' <<< "$header_info" | awk -F'\.\.\.' '{print $NF}' | awk '{print $1}')
-
-    if [[ $FORCE -eq 1 || ! -e $output ]]; then
-      >&2 rm -f $output # just in case
-      >&2 echo "generating preview of $input to $output..."
-      
-      tmpfile="$input"
-      if [ "$lowpass" != "" ]; then
-        tmpfile=$(mktemp /tmp/pipeline-image.XXXXXX)
-        >&2 echo "executing: lowpass filtering" 1>&2
-        #mtffilter -low ${APIX}/${lowpass},0.05 "$input" "$tmpfile" || {
-        #rc=$?
-        #echo "imod exited with code $rc" >&2
-        #exit "$rc"
-        python3 - "$input" "$tmpfile" "$lowpass" <<'PY'
+lowpass_filter() {
+  local input="$1"
+  local output="$2"
+  local lowpass="${3:-40.0}"
+  module load ${PYLIBS_LOAD} || exit $?
+  >&2 echo "executing: lowpass filtering" 1>&2
+  python3 - "$input" "$output" "$lowpass" <<'PY'
 
 import numpy as np
 from scipy.ndimage import gaussian_filter
-#ian's 
 
 def lowpass_sigma_px(resolution_A, pixel_size_A):
     """Gaussian σ (pixels) that corresponds to a resolution cutoff in Å."""
@@ -785,10 +740,65 @@ if __name__ == "__main__":
         mo.set_data(out)
         mo.voxel_size = vs
 
-    print(f"Wrote {out_path}  shape={out.shape}  cutoff={res} Å  px={px} Å/px  sigma={lowpass_sigma_px(res, px):.2f} px")
+    print(f"Wrote {out_path}  shape={out.shape}  cutoff={res} Å  px={px} Å/px  sigma={lowpass_sigma_px(res, px):.2f} px", file=sys.stderr)
 
 PY
-        if [ ! -e $tmpfile ]; then
+
+
+}
+
+generate_preview() {
+  local input="$1"
+  local outdir="${2:-.}" # if no output dir is given, put in current dir
+  local lowpass="${3:-40.0}"
+  local frame_rate="${4:-4}" # default frame rate is 4 if not specified as arg
+  local format="mp4" # default output format is mp4/only thing code supports
+
+  # ensures mrc file is provided
+  if [[ -z "$input" ]]; then
+      >&2 echo "Error: No .mrc file provided as an argument."
+      >&2 echo "Usage: $0 <mrc_file> [output_dir] [frame_rate]"
+      exit 1
+  fi
+
+  # ensures the input file exists
+  if [ ! -e "$input" ]; then
+    >&2 echo "input file $input not found!"
+    exit 1
+  fi
+
+  #create output directory
+  local filename=$(basename -- "$input")
+  local extension="${filename##*.}"
+  local output="$outdir/${filename%.${extension}}.${format}" # output file name is same as input but with .mp4 extension
+  mkdir -p "$outdir" #if new output direcory is initialized, create it
+
+  # checks if output files already exist, if so, exits to avoid overwriting (necessary? in old code)
+  if [ -e "$output" ]; then
+    >&2 echo "preview file $output already exists!"
+    exit 1
+  else
+    >&2 echo "generating preview of $input to $output..."
+    module load ${IMOD_LOAD} || exit $?
+    module load ${FFMPEG_LOAD} || exit $?
+
+    # imod command to compute min/max densities
+    alterheader -mmm "$input"
+
+    # reads density info from the header and extracts min/max values
+    local header_info=$(header "$input" 2>&1)
+    local min_density=$(grep -i 'Minimum Density' <<< "$header_info" | awk -F'\.\.\.' '{print $NF}' | awk '{print $1}')
+    local max_density=$(grep -i 'Maximum Density' <<< "$header_info" | awk -F'\.\.\.' '{print $NF}' | awk '{print $1}')
+
+    if [[ $FORCE -eq 1 || ! -e $output ]]; then
+      >&2 rm -f $output # just in case
+      >&2 echo "generating preview of $input to $output..."
+
+      tmpfile="$input"
+      if [[ -n "$lowpass" ]]; then
+        tmpfile="$outdir/${filename%.*}_lowpass.mrc"
+        lowpass_filter "$input" "$tmpfile" "$lowpass" || exit $?
+        if [[ ! -e "$tmpfile" ]]; then
           >&2 echo "could not create image $tmpfile... exiting..."
           exit 4
         fi
@@ -796,7 +806,7 @@ PY
 
       echo "executing: .mrc to .tif conversion" 1>&2
       # imod command 
-      mrc2tif -C "${min_density}","${max_density}" "$tmpfile" "$outdir/${filename}" || {
+      mrc2tif -C "${min_density}","${max_density}" "$tmpfile" "$outdir/${filename}" 1>&2 || {
       rc=$?
       echo "mrc2tif exited with code $rc" >&2
       exit "$rc"
@@ -814,7 +824,7 @@ PY
 
       if [ "$lowpass" != "" ]; then
         >&2 echo "rm -f $tmpfile"
-        rm -f $tmpfile || exit $?
+        rm -f "$tmpfile" || exit $?
       fi
     else
       >&2 echo "preview file $output already exists!"
@@ -828,7 +838,7 @@ PY
     exit 4
   fi
 
-dump_file_meta "${output}" || exit $? 
+dump_file_meta "${output}" >&2 || exit $?
 echo "$output"
 
 }
