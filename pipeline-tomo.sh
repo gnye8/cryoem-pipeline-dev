@@ -9,6 +9,8 @@ FFMPEG_VERSION="4.4.2"
 FFMPEG_LOAD="ffmpeg/${FFMPEG_VERSION}"
 PYLIBS_VERSION="1.1"
 PYLIBS_LOAD="pylibs/${PYLIBS_VERSION}"
+DENOISET_VERSION="1.0.0"
+DENOISET_LOAD="denoiset/${DENOISET_VERSION}"
 
 # GENERATE
 # select mode/task and define terms
@@ -387,10 +389,7 @@ do_tomo() {
   echo "tomographic_analysis:"
   local reconstructed_dir="$RECONSTRUCTED_DIR"
   local preview_dir="$PREVIEW_DIR"
-  local expected_tomogram="${reconstructed_dir}/$(basename "${MDOC%.*}")_Vol.mrc"
-
-  if [[ "$TASK" != "reconstruct" && "$TASK" != "preview" && "$TASK" != "all" ]]; then
-    >&2 echo "Error: Invalid task specified: $TASK . Valid options are: reconstruct, preview, all."
+  local expected_tomogram="${reconstructed_dir}/$(basename "${MDOC%.*}")_Vol.mrc"  if [[ "$TASK" != "reconstruct" && "$TASK" != "preview"  && "$TASK" != "all" ]]; th&&    >&2 echo "Error: Invalid task specified: $TASK . Valid options are: reconstruct, preview, all."
     usage
     exit 1
   fi
@@ -405,6 +404,25 @@ do_tomo() {
     else
       tomo_reconstruction "$MDOC" "$GAINREF_FILE" "$reconstructed_dir" || exit $?
       TOMOGRAM=$(tomogram "$MDOC" "$reconstructed_dir") || exit $?
+    fi
+    local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
+    echo "    duration: $duration"
+    echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
+  fi
+
+  # edit this to only run on first iteration
+  if [["$TASK" == "denoise" || "$TASK" == "all" ]]; then
+    echo "  - task: denoise"
+    local start=$(date +%s.%N)
+    if [[ ! -f "$expected_tomogram" ]]; then
+    # check for EVN/ODD tomograms files 
+      >&2 echo "Error: EVN/ODD $expected_tomogram does not exist for denoising."
+      exit 1
+    else
+      TOMOGRAM="$expected_tomogram"
+      local denoised_path=$(denoise_tomogram) || exit $? 
+      echo "    files generated in $denoised_path:"
+      # dump_file_meta "${denoised_path}" || exit $? #is it ok to move this? it has weird outputs sometimes
     fi
     local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
     echo "    duration: $duration"
@@ -427,6 +445,7 @@ do_tomo() {
     echo "    duration: $duration"
     echo "    executed_at: " $(date --utc +%FT%TZ -d @$start)
   fi
+
 }
 
 
@@ -625,7 +644,7 @@ tomogram() {
   local outdir="${2:-OUTDIR}"
   local filename=$(basename -- "$input")
   local prefix="${filename%.*}" #remove extension
-  local all_mrc=("$outdir"/*.mrc)
+  local all_mrc=("$outdir"/*._Vol.mrc)
   if [[ "$prefix" == "$filename" ]]; then
     prefix="$filename"
   fi
@@ -641,6 +660,26 @@ tomogram() {
     >&2 echo "Error: no tomogram .mrc found in $outdir"
     return 1
   fi
+}
+
+tomo_denoise() {
+  local input=${RECONSTRUCTED_DIR}
+  local outdir="${RECONSTRUCTION_DIR}/denoised"
+  local metrics="${outdir}/TiltSeries_Metrics.csv"
+
+  mkdir -p "$outdir"
+  module load ${DENOISET_LOAD} || exit $?
+  >&2 echo "executing: beginning denoising concurrently with reconstruction"
+
+  #t_interval checks every 5 mins
+  #t_exit waits  30 min between then exits
+
+  denoise3d \
+    --input "${input}" \
+    --output "${outdir}" \
+    --metrics_file "${metrics}" \
+    --live \
+
 }
 
 lowpass_filter() {
@@ -748,6 +787,7 @@ PY
 }
 
 generate_preview() {
+  # change input to denoised directory 
   local input="$1"
   local outdir="${2:-.}" # if no output dir is given, put in current dir
   local lowpass="${3:-40.0}"
