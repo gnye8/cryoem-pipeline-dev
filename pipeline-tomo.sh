@@ -389,7 +389,8 @@ do_tomo() {
   echo "tomographic_analysis:"
   local reconstructed_dir="$RECONSTRUCTED_DIR"
   local preview_dir="$PREVIEW_DIR"
-  local expected_tomogram="${reconstructed_dir}/$(basename "${MDOC%.*}")_Vol.mrc"  if [[ "$TASK" != "reconstruct" && "$TASK" != "preview" && "$TASK" != "denoise" && "$TASK" != "all" ]]; then
+  local expected_tomogram="${reconstructed_dir}/$(basename "${MDOC%.*}")_Vol.mrc"  
+  if [[ "$TASK" != "reconstruct" && "$TASK" != "preview" && "$TASK" != "denoise" && "$TASK" != "all" ]]; then
     >&2 echo "Error: Invalid task specified: $TASK . Valid options are: reconstruct, preview, denoise, all."
     usage
     exit 1
@@ -412,7 +413,7 @@ do_tomo() {
   fi
 
   # edit this to only run on first iteration
-  if [["$TASK" == "denoise" || "$TASK" == "all" ]]; then
+  if [[ "$TASK" == "denoise" || "$TASK" == "all" ]]; then
     echo "  - task: denoise"
     local start=$(date +%s.%N)
     if [[ ! -f "$expected_tomogram" ]]; then
@@ -421,9 +422,8 @@ do_tomo() {
       exit 1
     else
       TOMOGRAM="$expected_tomogram"
-      local denoised_path=$(denoise_tomogram) || exit $? 
-      echo "    files generated in $denoised_path:"
-      # dump_file_meta "${denoised_path}" || exit $? #is it ok to move this? it has weird outputs sometimes
+      tomo_denoise || exit $?
+      echo "    files generated in ${RECONSTRUCTED_DIR}/denoised"
     fi
     local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
     echo "    duration: $duration"
@@ -664,9 +664,9 @@ tomogram() {
 }
 
 tomo_denoise() {
-  local input=${RECONSTRUCTED_DIR}
-  local outdir="${RECONSTRUCTION_DIR}/denoised"
-  local metrics="${outdir}/TiltSeries_Metrics.csv"
+  local input="${RECONSTRUCTED_DIR}"
+  local outdir="${RECONSTRUCTED_DIR}/denoised"
+  local metrics="${RECONSTRUCTED_DIR}/TiltSeries_Metrics.csv"
 
   mkdir -p "$outdir"
   module load ${DENOISET_LOAD} || exit $?
@@ -679,7 +679,7 @@ tomo_denoise() {
     --input "${input}" \
     --output "${outdir}" \
     --metrics_file "${metrics}" \
-    --live \
+    --live
 
 }
 
