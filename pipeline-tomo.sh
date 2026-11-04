@@ -672,6 +672,10 @@ tomo_denoise() {
   module load ${DENOISET_LOAD} || exit $?
   >&2 echo "executing: beginning denoising concurrently with reconstruction"
 
+  #debug
+  >&2 echo "input dir: ${input}"
+  >&2 ls -ld "${input}"
+  >&2 echo "EVN: $(ls "${input}" 2>/dev/null | grep -c 'EVN_Vol.mrc')  ODD: $(ls "${input}" 2>/dev/null | grep -c 'ODD_Vol.mrc')" 
   #t_interval checks every 5 mins
   #t_exit waits  30 min between then exits
 
@@ -679,8 +683,9 @@ tomo_denoise() {
     --input "${input}" \
     --output "${outdir}" \
     --metrics_file "${metrics}" \
-    --live
-
+    --bad_patch_low 0.25 \
+    --bad_patch_all 0.3
+    # --live
 }
 
 lowpass_filter() {
