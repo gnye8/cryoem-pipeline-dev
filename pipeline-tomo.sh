@@ -263,27 +263,60 @@ ensure_all_files() {
   fi
 }
 
-#TO DO: add function to kick things off based on the mode
-#and the task specified by the user, and call the appropriate functions 
-#process each input mdoc file
-#the function will ask if the mode is spa, then call do_spa function 
-#if the mode is tomo, then call do_tomo function 
-#else, print an error message and exit 
-for MDOC in "${MDOCS[@]}"; do
+if [[ "$MODE" == "tomo" && ( "$TASK" == "all" || "$TASK" == "denoise" ) ]]; then
+  # save task
+  local orig_task="$TASK"
+  local denoise_pid=""
 
-  # strip ./
-  if [[ "$MDOC" = ./* ]]; then MDOC="${MDOC:2}"; fi
-  if [[ "$MODE" == "tomo" ]]; then
+  for MDOC in "${MDOCS[@]}"; do
+    if [[ "$MDOC" = ./* ]]; then MDOC="${MDOC:2}"; fi
+    >&2 echo "MDOC: ${MDOC}"
+
+    TASK="reconstruct"
+    do_tomo
+
+    #run only on first iter
+    if [[ -z "$denoise_pid" ]]; then
+      TASK="$orig_task"
+      tomo_denoise --live &
+      denoise_pid=$!
+    fi
+  done
+
+  if [[ -n "$denoise_pid" ]]; then
+    if wait "$denoise_pid"; then
+      denoise_pid=""
+    else
+      local denoise_status=$?
+      denoise_pid=""
+      >&2 echo "Error: live tomogram denoising failed with code $denoise_status"
+      exit "$denoise_status"
+    fi
+  fi
+
+  TASK="preview"
+  for MDOC in "${MDOCS[@]}"; do
+    if [[ "$MDOC" = ./* ]]; then MDOC="${MDOC:2}"; fi
+    >&2 echo "MDOC: ${MDOC}"
+    do_tomo
+  done
+
+  TASK="$orig_task"
+else
+  for MDOC in "${MDOCS[@]}"; do
+    if [[ "$MDOC" = ./* ]]; then MDOC="${MDOC:2}"; fi
+    if [[ "$MODE" == "tomo" ]]; then
       >&2 echo "MDOC: ${MDOC}"
       do_tomo
-  elif [[ "$MODE" == "spa" ]]; then
+    elif [[ "$MODE" == "spa" ]]; then
       do_spa
-  else
-    echo "Invalid mode specified: $MODE"
-    usage
-    exit 1
-  fi
-done
+    else
+      echo "Invalid mode specified: $MODE"
+      usage
+      exit 1
+    fi
+  done
+fi
 }
 
 
@@ -667,6 +700,11 @@ tomo_denoise() {
   local input="${RECONSTRUCTED_DIR}"
   local outdir="${RECONSTRUCTED_DIR}/denoised"
   local metrics="${RECONSTRUCTED_DIR}/TiltSeries_Metrics.csv"
+  local live_args=()
+
+  if [[ "${1:-}" == "--live" ]]; then
+    live_args+=(--live)
+  fi
 
   mkdir -p "$outdir"
   module load ${DENOISET_LOAD} || exit $?
@@ -684,8 +722,8 @@ tomo_denoise() {
     --output "${outdir}" \
     --metrics_file "${metrics}" \
     --bad_patch_low 0.25 \
-    --bad_patch_all 0.3
-    # --live
+    --bad_patch_all 0.3 \
+    "${live_args[@]}"
 }
 
 lowpass_filter() {
