@@ -263,6 +263,7 @@ ensure_all_files() {
   fi
 }
 
+# execution based on if denoiset needs to run concurrently 
 if [[ "$MODE" == "tomo" && ( "$TASK" == "all" || "$TASK" == "denoise" ) ]]; then
   # save task
   local orig_task="$TASK"
@@ -277,23 +278,25 @@ if [[ "$MODE" == "tomo" && ( "$TASK" == "all" || "$TASK" == "denoise" ) ]]; then
 
     #run only on first iter
     if [[ -z "$denoise_pid" ]]; then
-      TASK="$orig_task"
-      tomo_denoise --live &
+      TASK="denoise"
+      do_tomo --live &
       denoise_pid=$!
     fi
   done
 
+  # wait for live denoising to complete then make previews (maybe not necessary)
   if [[ -n "$denoise_pid" ]]; then
-    if wait "$denoise_pid"; then
-      denoise_pid=""
-    else
-      local denoise_status=$?
-      denoise_pid=""
-      >&2 echo "Error: live tomogram denoising failed with code $denoise_status"
-      exit "$denoise_status"
-    fi
+    wait "$denoise_pid"
+    denoise_pid=""
   fi
+  #    else
+  #      local denoise_status=$?
+  #      denoise_pid=""
+  #      >&2 echo "Error: live tomogram denoising failed with code $denoise_status"
+  #      exit "$denoise_status"
+  #    fi
 
+  # could check for denoised files to run concurrently
   TASK="preview"
   for MDOC in "${MDOCS[@]}"; do
     if [[ "$MDOC" = ./* ]]; then MDOC="${MDOC:2}"; fi
@@ -447,6 +450,10 @@ do_tomo() {
 
   # edit this to only run on first iteration
   if [[ "$TASK" == "denoise" || "$TASK" == "all" ]]; then
+    local denoise_args=()
+    if [[ "${1:-}" == "--live" ]]; then
+      denoise_args+=(--live)
+    fi
     echo "  - task: denoise"
     local start=$(date +%s.%N)
     if [[ ! -f "$expected_tomogram" ]]; then
@@ -455,7 +462,7 @@ do_tomo() {
       exit 1
     else
       TOMOGRAM="$expected_tomogram"
-      tomo_denoise || exit $?
+      tomo_denoise "${denoise_args[@]}" || exit $?
       echo "    files generated in ${RECONSTRUCTED_DIR}/denoised"
     fi
     local duration=$( awk '{print $2-$1}' <<< "$start $(date +%s.%N)" )
