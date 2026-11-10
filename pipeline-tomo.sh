@@ -269,6 +269,7 @@ if [[ "$MODE" == "tomo" && ( "$TASK" == "all" || "$TASK" == "denoise" ) ]]; then
   local orig_task="$TASK"
   local denoise_pid=""
 
+  # must run reconstruction even for just denoise (will skip if tomos are already there)
   for MDOC in "${MDOCS[@]}"; do
     if [[ "$MDOC" = ./* ]]; then MDOC="${MDOC:2}"; fi
     >&2 echo "MDOC: ${MDOC}"
